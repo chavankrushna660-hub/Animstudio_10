@@ -1,0 +1,6 @@
+{
+  "name": "AnimStudio",
+  "description": "2D/3D Animation Studio with Puppet Warp, Vector Smart Transform, and Smart Correction tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
