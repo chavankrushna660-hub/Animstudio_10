@@ -60,6 +60,7 @@ import {
 import { safeJsonParse } from './utils/securityGuard';
 import { extractPNGSilhouetteContour } from './utils/pngSilhouette';
 import { getInterpolatedObjects } from './utils/interpolation';
+import { build3DSoulFromVectorObject } from './utils/stroke3DEngine';
 
 export function transformDeformPoint(
   orig: { x: number; y: number; z?: number },
@@ -3047,6 +3048,27 @@ export default function App() {
     setOriginalDeformPointCoords(null);
     setHideLassoSelection(false);
     setHideFslSelection(false);
+    setPointShapeState({
+      mode: 'place',
+      nodes: [],
+      selectedNodeId: null,
+      showPoints: true,
+      showStrokes: true,
+      autoJoin: true,
+      isClosed: true,
+      fillColor: '#F59E0B',
+      strokeColor: '#000000',
+      strokeWidth: 3,
+      targetDrawingId: null,
+      brushRadius: 50,
+      brushStrength: 0.5,
+      brushType: 'push',
+      lowPolyMode: false,
+      minDistance: 16,
+      maxNodes: 36,
+      simplifyTolerance: 6,
+    });
+    setLineEditState(prev => ({ ...prev, nodes: [], targetDrawingId: null }));
   };
 
   // Timeline operations
@@ -3390,6 +3412,9 @@ export default function App() {
           isHidden: false,
         };
         (newObj as any)._cachedImg = img;
+
+        const rule3D = build3DSoulFromVectorObject(newObj, 45, 'ellipsoid');
+        newObj.rule3DState = rule3D;
 
         setObjects(prev => ({ ...prev, [imgId]: newObj }));
         setSelectedObjectId(imgId);

@@ -151,7 +151,11 @@ export function build3DSoulFromVectorObject(
   rawPaths.forEach((pathItem, pathIdx) => {
     if (!pathItem.points || pathItem.points.length === 0) return;
 
-    const semantic = inferSemanticPart(pathItem.points, bounds, pathItem.isMain, pathIdx);
+    // For PNG image objects, treat the entire silhouette as one unified 3D object body
+    const isImageObj = sourceObject.type === 'image';
+    const semantic = isImageObj
+      ? { partName: 'Object 3D Body', side: 'center' as const, baseZ: 0, isClosed: true }
+      : inferSemanticPart(pathItem.points, bounds, pathItem.isMain, pathIdx);
     const pBounds = calculateStrokeBounds(pathItem.points);
 
     const points3D: Rule3DPoint[] = pathItem.points.map(pt => {

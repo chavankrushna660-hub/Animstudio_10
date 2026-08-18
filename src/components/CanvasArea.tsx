@@ -2614,15 +2614,15 @@ export default function CanvasArea({
 
   // Perform hit testing on any drawing path (including subPaths of merged drawings)
   const performHitTest = (coords: Point): VectorObject | null => {
-    // Check active layer first, then fallback to any visible unlocked layer
-    const getVisibleObjects = (onlyActiveLayer: boolean) => {
+    // Strict Layer Isolation: Objects can ONLY be hit-tested and selected on their own activeLayerId
+    const getVisibleObjects = (onlyActiveLayer: boolean = true) => {
       return Object.values(objects).filter(o => {
         if (o.isHidden || o.isLocked) return false;
         const effLayerId = o.layerId || (layers && layers[0] ? layers[0].id : 'layer_1');
         const layer = layers ? layers.find(l => l.id === effLayerId) : null;
         if (layer && (layer.visible === false || (layer as any).isHidden || layer.locked || layer.opacity === 0)) return false;
-        if (onlyActiveLayer) return effLayerId === activeLayerId;
-        return true;
+        // Strictly only allow objects on active layer
+        return effLayerId === activeLayerId;
       });
     };
 
@@ -2643,6 +2643,26 @@ export default function CanvasArea({
             if (isPointInPolygon(coords, poly)) {
               return rawObj;
             }
+          }
+          continue;
+        }
+
+        if (obj.type === 'image') {
+          const pivot = obj.pivots[0] || { localX: 0, localY: 0 };
+          const worldPoints = obj.points.map(p => localToWorld(p, obj.transform, pivot));
+          if (worldPoints.length >= 3 && isPointInPolygon(coords, worldPoints)) {
+            return rawObj;
+          }
+          const dist = pointToPolylineDistance(coords, worldPoints);
+          if (dist < 18) {
+            return rawObj;
+          }
+          // Also check bounding box of image
+          const localCoords = worldToLocal(coords, obj.transform, pivot);
+          const imgBounds = calculateBoundingBox(obj.points.length > 0 ? obj.points : [{ x: -100, y: -100 }, { x: 100, y: 100 }]);
+          if (localCoords.x >= imgBounds.x && localCoords.x <= imgBounds.x + imgBounds.width &&
+              localCoords.y >= imgBounds.y && localCoords.y <= imgBounds.y + imgBounds.height) {
+            return rawObj;
           }
           continue;
         }
@@ -2694,11 +2714,8 @@ export default function CanvasArea({
       return null;
     };
 
-    const activeHit = testList(getVisibleObjects(true));
-    if (activeHit) return activeHit;
-
-    // Fallback: check all visible non-locked layers if active layer produced no hit
-    return testList(getVisibleObjects(false));
+    // Strictly test active layer objects only
+    return testList(getVisibleObjects(true));
   };
 
   // Get active object or hit object or create default drawing so tools work immediately
@@ -2708,7 +2725,7 @@ export default function CanvasArea({
       const effLayerId = obj.layerId || (layers && layers[0] ? layers[0].id : 'layer_1');
       const layer = layers ? layers.find(l => l.id === effLayerId) : null;
       if (layer && (layer.visible === false || (layer as any).isHidden || layer.locked || layer.opacity === 0)) return false;
-      return true;
+      return effLayerId === activeLayerId;
     };
 
     const targetInfo = getActiveTargetObjectInfo(selectedObjectId);
@@ -4339,10 +4356,35 @@ export default function CanvasArea({
         };
         const updatedNodes = [...nodes, newNode];
         const newIdx = updatedNodes.length - 1;
+
+        // Ensure drawing is created/synchronized as a first-class VectorObject on activeLayerId
+        const tId = pointShapeState.targetDrawingId || `obj_pts_${Date.now()}`;
+        const targetObj: VectorObject = {
+          id: tId,
+          name: `PointDrawing_${Object.keys(objects).length + 1}`,
+          type: 'shape',
+          points: updatedNodes.map(n => ({ x: n.x, y: n.y })),
+          strokeColor: pointShapeState.strokeColor || '#000000',
+          strokeWidth: pointShapeState.strokeWidth || 3,
+          fillColor: pointShapeState.isClosed ? (pointShapeState.fillColor || '#F59E0B') : 'transparent',
+          opacity: 1,
+          transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+          pivots: [{ id: `pvt_${Date.now()}`, name: 'Pivot_1', localX: updatedNodes[0].x, localY: updatedNodes[0].y, locked: false }],
+          parentId: null,
+          childrenIds: [],
+          layerId: activeLayerId,
+          isLocked: false,
+          isHidden: false,
+        };
+
+        setObjects(prev => ({ ...prev, [tId]: targetObj }));
+        setSelectedObjectId(tId);
+
         setPointShapeState(prev => ({
           ...prev,
           nodes: updatedNodes,
-          selectedNodeId: newNode.id
+          selectedNodeId: newNode.id,
+          targetDrawingId: tId
         }));
         setDragMode('point_shape_node' as any);
         setDraggedMeshPointIndex(newIdx);
