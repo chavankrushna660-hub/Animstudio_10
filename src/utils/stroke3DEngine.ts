@@ -105,10 +105,57 @@ function inferSemanticPart(
     };
   }
 
-  // Rule 6: Limbs / Hands / Generic Feature
+  // Rule 6: Head / Torso / Limbs for full body drawings and PNG character parts
+  if (relY < 0.35 && relWidth < 0.6) {
+    return {
+      partName: 'Head / Crown',
+      side: 'center',
+      baseZ: 20,
+      isClosed
+    };
+  }
+
+  if (relY >= 0.35 && relY < 0.75 && Math.abs(relX) < 0.4) {
+    return {
+      partName: 'Torso / Core',
+      side: 'center',
+      baseZ: 12,
+      isClosed
+    };
+  }
+
+  if (relX < -0.3 && relY >= 0.25 && relY < 0.75) {
+    return {
+      partName: 'Left Arm / Flank',
+      side: 'left',
+      baseZ: 5,
+      isClosed
+    };
+  }
+
+  if (relX > 0.3 && relY >= 0.25 && relY < 0.75) {
+    return {
+      partName: 'Right Arm / Flank',
+      side: 'right',
+      baseZ: 5,
+      isClosed
+    };
+  }
+
+  if (relY >= 0.7) {
+    const side = relX < -0.05 ? 'left' : relX > 0.05 ? 'right' : 'center';
+    return {
+      partName: side === 'left' ? 'Left Leg / Base' : side === 'right' ? 'Right Leg / Base' : 'Lower Base',
+      side,
+      baseZ: 8,
+      isClosed
+    };
+  }
+
+  // Rule 7: Limbs / Hands / Generic Feature
   const side = relX < -0.15 ? 'left' : relX > 0.15 ? 'right' : 'center';
   return {
-    partName: `Feature ${partIndex + 1}`,
+    partName: `Part ${partIndex + 1}`,
     side,
     baseZ: 10,
     isClosed
@@ -116,7 +163,7 @@ function inferSemanticPart(
 }
 
 /**
- * Constructs 3D Soul & Stroke Memory from a 2D VectorObject
+ * Constructs 3D Soul & Stroke Memory from a 2D VectorObject (Drawings & PNG Images)
  */
 export function build3DSoulFromVectorObject(
   sourceObject: VectorObject,
@@ -135,14 +182,72 @@ export function build3DSoulFromVectorObject(
   const halfW = bounds.width / 2 || 1;
   const halfH = bounds.height / 2 || 1;
 
-  const rawPaths: { points: Point[]; isMain: boolean; subPathIdx?: number }[] = [];
+  const rawPaths: { points: Point[]; isMain: boolean; subPathIdx?: number; customName?: string }[] = [];
+
+  const isPngImage = sourceObject.type === 'image' || !!sourceObject.imageUrl;
+
   if (sourceObject.points && sourceObject.points.length > 0) {
     rawPaths.push({ points: sourceObject.points, isMain: true });
   }
+
   if (sourceObject.subPaths && sourceObject.subPaths.length > 0) {
     sourceObject.subPaths.forEach((sub, idx) => {
       rawPaths.push({ points: sub, isMain: rawPaths.length === 0, subPathIdx: idx });
     });
+  }
+
+  // If PNG image with only bounding box points (<=4 points) and no subpaths, generate multi-part volumetric contour slices
+  if (isPngImage && rawPaths.length <= 1 && (rawPaths[0]?.points?.length || 0) <= 4) {
+    const minX = bounds.minX;
+    const maxX = bounds.maxX;
+    const minY = bounds.minY;
+    const maxY = bounds.maxY;
+    const cX = bounds.centerX;
+    const cY = bounds.centerY;
+
+    // 1. Silhouette Perimeter (32 points)
+    const perimeter: Point[] = [];
+    const steps = 32;
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const px = cX + Math.cos(angle) * (bounds.width / 2);
+      const py = cY + Math.sin(angle) * (bounds.height / 2);
+      perimeter.push({ x: Number(px.toFixed(2)), y: Number(py.toFixed(2)) });
+    }
+    rawPaths[0] = { points: perimeter, isMain: true, customName: 'Silhouette Boundary' };
+
+    // 2. Head / Top Crown Slice
+    const headSlice: Point[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      headSlice.push({
+        x: Number((minX + t * bounds.width).toFixed(2)),
+        y: Number((minY + 0.2 * bounds.height).toFixed(2))
+      });
+    }
+    rawPaths.push({ points: headSlice, isMain: false, subPathIdx: 0, customName: 'Head / Crown' });
+
+    // 3. Torso / Core Mid Slice
+    const torsoSlice: Point[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      torsoSlice.push({
+        x: Number((minX + t * bounds.width).toFixed(2)),
+        y: Number((minY + 0.5 * bounds.height).toFixed(2))
+      });
+    }
+    rawPaths.push({ points: torsoSlice, isMain: false, subPathIdx: 1, customName: 'Torso / Core' });
+
+    // 4. Base / Limbs Lower Slice
+    const baseSlice: Point[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      baseSlice.push({
+        x: Number((minX + t * bounds.width).toFixed(2)),
+        y: Number((minY + 0.8 * bounds.height).toFixed(2))
+      });
+    }
+    rawPaths.push({ points: baseSlice, isMain: false, subPathIdx: 2, customName: 'Base / Limbs' });
   }
 
   const strokes3D: Rule3DStrokePath[] = [];
@@ -151,11 +256,15 @@ export function build3DSoulFromVectorObject(
   rawPaths.forEach((pathItem, pathIdx) => {
     if (!pathItem.points || pathItem.points.length === 0) return;
 
-    // For PNG image objects, treat the entire silhouette as one unified 3D object body
-    const isImageObj = sourceObject.type === 'image';
-    const semantic = isImageObj
-      ? { partName: 'Object 3D Body', side: 'center' as const, baseZ: 0, isClosed: true }
+    const semantic = pathItem.customName
+      ? {
+          partName: pathItem.customName,
+          side: pathItem.customName.includes('Left') ? 'left' as const : pathItem.customName.includes('Right') ? 'right' as const : 'center' as const,
+          baseZ: pathItem.customName.includes('Head') ? 22 : pathItem.customName.includes('Torso') ? 14 : pathItem.customName.includes('Boundary') ? 0 : 8,
+          isClosed: pathItem.points.length > 2
+        }
       : inferSemanticPart(pathItem.points, bounds, pathItem.isMain, pathIdx);
+
     const pBounds = calculateStrokeBounds(pathItem.points);
 
     const points3D: Rule3DPoint[] = pathItem.points.map(pt => {
@@ -432,11 +541,70 @@ export function evaluateRule3DTransform(
       depthOffset = ruleState.earDepth;
     }
 
+    // Live sync: Use dynamically deformed points from sourceObject if modified by Line Edit or Sculpt tools
+    let currentLivePoints: Point[] = [];
+    if (stroke.subPathIndex === undefined) {
+      currentLivePoints = (sourceObject.points && sourceObject.points.length > 0) ? sourceObject.points : stroke.points3D;
+    } else {
+      currentLivePoints = (sourceObject.subPaths && sourceObject.subPaths[stroke.subPathIndex] && sourceObject.subPaths[stroke.subPathIndex].length > 0)
+        ? sourceObject.subPaths[stroke.subPathIndex]
+        : stroke.points3D;
+    }
+
+    // Map to 3D Points
+    const halfW = first.bounds.width / 2 || 1;
+    const halfH = first.bounds.height / 2 || 1;
+    const firstCenterX = first.bounds.minX + halfW;
+    const firstCenterY = first.bounds.minY + halfH;
+    const profile = ruleState.curvatureProfile || 'ellipsoid';
+    const volDepth = ruleState.volumetricDepth || 45;
+
+    const points3DToTransform: Rule3DPoint[] = currentLivePoints.map((pt, pIdx) => {
+      const existing3d = stroke.points3D[pIdx];
+      if (existing3d && Math.abs(existing3d.x - pt.x) < 1e-3 && Math.abs(existing3d.y - pt.y) < 1e-3) {
+        return existing3d;
+      }
+      
+      const dx = (pt.x - firstCenterX) / halfW;
+      const dy = (pt.y - firstCenterY) / halfH;
+      const r2 = dx * dx + dy * dy;
+
+      let surfaceZ = 0;
+      let nx = 0, ny = 0, nz = 1;
+
+      if (profile === 'ellipsoid' || profile === 'spherical') {
+        const factor = Math.max(0, 1 - Math.min(1, r2));
+        surfaceZ = Math.sqrt(factor) * volDepth;
+        nx = dx;
+        ny = dy;
+        nz = Math.sqrt(factor);
+      } else if (profile === 'cylinder') {
+        const factorX = Math.max(0, 1 - Math.min(1, dx * dx));
+        surfaceZ = Math.sqrt(factorX) * volDepth;
+        nx = dx;
+        ny = 0;
+        nz = Math.sqrt(factorX);
+      }
+
+      return {
+        x: pt.x,
+        y: pt.y,
+        z: surfaceZ + stroke.baseZ,
+        normalX: nx,
+        normalY: ny,
+        normalZ: nz,
+        pressure: pt.thickness || 1,
+        thickness: pt.thickness,
+        color: pt.color,
+        gap: pt.gap
+      };
+    });
+
     // Transform all points of this stroke
     let sumZ = 0;
     let sumNormalZ = 0;
 
-    const projectedPoints: Point[] = stroke.points3D.map(p3d => {
+    const projectedPoints: Point[] = points3DToTransform.map(p3d => {
       // Adjust Z by part offset
       const localPt = { x: p3d.x, y: p3d.y, z: p3d.z + (depthOffset - stroke.baseZ) };
       const transformed = transform3DPoint(localPt, origin3D, yaw, pitch, roll, scale3D, tx, ty, tz);
@@ -466,8 +634,8 @@ export function evaluateRule3DTransform(
       };
     });
 
-    const avgZ = sumZ / Math.max(1, stroke.points3D.length);
-    const avgNormalZ = sumNormalZ / Math.max(1, stroke.points3D.length);
+    const avgZ = sumZ / Math.max(1, points3DToTransform.length);
+    const avgNormalZ = sumNormalZ / Math.max(1, points3DToTransform.length);
 
     // Rule-Based Occlusion & Back-face Culling:
     // When turning, lateral features on the far side (e.g. right ear when turning left, or left ear when turning right)

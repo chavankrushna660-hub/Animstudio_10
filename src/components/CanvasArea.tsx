@@ -2629,7 +2629,17 @@ export default function CanvasArea({
     const testList = (list: VectorObject[]) => {
       const reversed = [...list].reverse();
       for (const rawObj of reversed) {
-        const obj = resolve360Object(rawObj, objects);
+        let obj = resolve360Object(rawObj, objects);
+
+        // If 2D-to-3D Stroke Memory Engine is enabled on the object, evaluate its on-screen 3D-transformed points for accurate hit testing
+        if (obj.rule3DState && obj.rule3DState.enabled) {
+          const eval3D = evaluateRule3DTransform(obj, obj.rule3DState);
+          obj = {
+            ...obj,
+            points: eval3D.points,
+            subPaths: eval3D.subPaths
+          };
+        }
 
         if (obj.type === '3d' && obj.vertices3D && obj.faces3D && obj.transform3D) {
           const transformed3D = transform3DVertices(obj.vertices3D, obj.transform3D!.x, obj.transform3D!.y, obj.transform3D!.z, obj.transform3D!.rx, obj.transform3D!.ry, obj.transform3D!.rz, obj.transform3D!.sx, obj.transform3D!.sy, obj.transform3D!.sz);
@@ -4147,6 +4157,32 @@ export default function CanvasArea({
       }
 
       if (!targetObj) return;
+
+      // For PNG image objects with only bounding box points, initialize a smooth editable perimeter
+      if (targetObj.type === 'image' && (!targetObj.points || targetObj.points.length <= 4)) {
+        const bounds = calculateBoundingBox(targetObj.points?.length ? targetObj.points : [{ x: -100, y: -100 }, { x: 100, y: 100 }]);
+        const perimeterPts: Point[] = [];
+        const numPts = 24;
+        const cX = bounds.x + bounds.width / 2;
+        const cY = bounds.y + bounds.height / 2;
+        const rx = bounds.width / 2;
+        const ry = bounds.height / 2;
+        for (let i = 0; i < numPts; i++) {
+          const angle = (i / numPts) * Math.PI * 2;
+          perimeterPts.push({
+            x: Number((cX + Math.cos(angle) * rx).toFixed(2)),
+            y: Number((cY + Math.sin(angle) * ry).toFixed(2))
+          });
+        }
+        targetObj = {
+          ...targetObj,
+          points: perimeterPts
+        };
+        setObjects(prev => ({
+          ...prev,
+          [targetObj!.id]: targetObj!
+        }));
+      }
 
       const pivot = targetObj.pivots?.[0] || { localX: 0, localY: 0 };
       const localPos = worldToLocal(coords, targetObj.transform, pivot);
@@ -6890,13 +6926,29 @@ export default function CanvasArea({
           return pt;
         });
 
+        const initSubPaths = lineEditInitialSubPathsRef.current;
+        const newSubPaths = initSubPaths ? initSubPaths.map(sub => sub.map(pt => {
+          const dist = Math.hypot(pt.x - startLocal.x, pt.y - startLocal.y);
+          if (dist < R) {
+            const w = Math.pow(1 - dist / R, 2) * elasticity;
+            return {
+              ...pt,
+              x: Number((pt.x + dx * w).toFixed(2)),
+              y: Number((pt.y + dy * w).toFixed(2)),
+            };
+          }
+          return pt;
+        })) : undefined;
+
         setObjects(prev => {
           if (!prev[targetId]) return prev;
+          const current = prev[targetId];
           return {
             ...prev,
             [targetId]: {
-              ...prev[targetId],
-              points: newPoints
+              ...current,
+              points: newPoints,
+              ...(newSubPaths ? { subPaths: newSubPaths } : {})
             }
           };
         });
@@ -6928,6 +6980,46 @@ export default function CanvasArea({
             [targetId]: {
               ...prev[targetId],
               points: updatedPoints
+            }
+          };
+        });
+      }
+      return;
+    }
+
+    // 〰️ LIN Tool dragMode: lineEditSmooth
+    if (dragMode === ('lineEditSmooth' as any) && lineEditTargetObjectIdRef.current) {
+      const targetId = lineEditTargetObjectIdRef.current;
+      const obj = objects[targetId];
+      if (obj && obj.points && obj.points.length > 2) {
+        const pivot = obj.pivots?.[0] || { localX: 0, localY: 0 };
+        const localPos = worldToLocal(coords, obj.transform, pivot);
+        const R = lineEditState?.pullRadius || 80;
+        const total = obj.points.length;
+        const smoothedPoints = obj.points.map((pt, idx) => {
+          const dist = Math.hypot(pt.x - localPos.x, pt.y - localPos.y);
+          if (dist < R) {
+            const prevPt = obj.points[(idx - 1 + total) % total];
+            const nextPt = obj.points[(idx + 1) % total];
+            const avgX = (prevPt.x + nextPt.x) / 2;
+            const avgY = (prevPt.y + nextPt.y) / 2;
+            const factor = Math.pow(1 - dist / R, 2) * 0.35;
+            return {
+              ...pt,
+              x: Number((pt.x + (avgX - pt.x) * factor).toFixed(2)),
+              y: Number((pt.y + (avgY - pt.y) * factor).toFixed(2))
+            };
+          }
+          return pt;
+        });
+
+        setObjects(prev => {
+          if (!prev[targetId]) return prev;
+          return {
+            ...prev,
+            [targetId]: {
+              ...prev[targetId],
+              points: smoothedPoints
             }
           };
         });
@@ -11385,20 +11477,30 @@ export default function CanvasArea({
       const targetObj = targetId ? objects[targetId] : null;
 
       if (targetObj) {
+        let displayObj = targetObj;
+        if (targetObj.rule3DState && targetObj.rule3DState.enabled) {
+          const eval3D = evaluateRule3DTransform(targetObj, targetObj.rule3DState);
+          displayObj = {
+            ...targetObj,
+            points: eval3D.points,
+            subPaths: eval3D.subPaths
+          };
+        }
+
         ctx.save();
-        const pivot = targetObj.pivots?.[0] || { localX: 0, localY: 0 };
+        const pivot = displayObj.pivots?.[0] || { localX: 0, localY: 0 };
         const pullRadius = lineEditState?.pullRadius || 80;
         const editMode = lineEditState?.mode || 'pull';
         const isDragging = dragMode === ('lineEditPull' as any);
 
         // 1. Convert stroke points & subPaths to world coordinates
         const allSegments: Point[][] = [];
-        if (targetObj.subPaths && targetObj.subPaths.length > 0) {
-          targetObj.subPaths.forEach(sub => {
-            allSegments.push(sub.map(p => localToWorld(p, targetObj.transform, pivot)));
+        if (displayObj.subPaths && displayObj.subPaths.length > 0) {
+          displayObj.subPaths.forEach(sub => {
+            allSegments.push(sub.map(p => localToWorld(p, displayObj.transform, pivot)));
           });
-        } else if (targetObj.points && targetObj.points.length > 0) {
-          allSegments.push(targetObj.points.map(p => localToWorld(p, targetObj.transform, pivot)));
+        } else if (displayObj.points && displayObj.points.length > 0) {
+          allSegments.push(displayObj.points.map(p => localToWorld(p, displayObj.transform, pivot)));
         }
 
         // 2. Draw glowing exact stroke line path overlay
