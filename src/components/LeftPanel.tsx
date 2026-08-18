@@ -404,7 +404,9 @@ export default function LeftPanel({
           </div>
 
           {/* Quick Item Actions */}
-          <div className="flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+          <div className={`flex items-center gap-1 transition-opacity ${
+            obj.isLocked || obj.isHidden ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'
+          }`}>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -425,9 +427,9 @@ export default function LeftPanel({
             <button
               onClick={(e) => toggleLock(obj, e)}
               className="p-1 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white"
-              title="Lock/Unlock positions"
+              title={obj.isLocked ? "Unlock drawing" : "Lock drawing on layer"}
             >
-              {obj.isLocked ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Unlock className="w-3.5 h-3.5" />}
+              {obj.isLocked ? <Lock className="w-3.5 h-3.5 text-rose-400" /> : <Unlock className="w-3.5 h-3.5" />}
             </button>
             <button
               onClick={(e) => {

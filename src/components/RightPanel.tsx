@@ -4886,6 +4886,70 @@ export default function RightPanel({
               )
             ) : (
               <>
+                {/* SELECTED DRAWING & LAYER LOCK CARD */}
+                {selectedObject && (
+                  <div className={`space-y-3 p-3.5 rounded-2xl border transition-all ${
+                    selectedObject.isLocked
+                      ? 'bg-rose-950/20 border-rose-500/40 shadow-lg shadow-rose-950/30'
+                      : 'bg-neutral-950/70 border-neutral-800 shadow-xl'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                          selectedObject.isLocked ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
+                        }`} />
+                        <span className="text-xs font-black text-neutral-200 truncate font-mono">
+                          {selectedObject.name}
+                        </span>
+                      </div>
+                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                        selectedObject.isLocked
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      }`}>
+                        {selectedObject.isLocked ? 'LOCKED' : 'EDITABLE'}
+                      </span>
+                    </div>
+
+                    {/* Lock / Unlock Toggle Button */}
+                    <button
+                      type="button"
+                      id="rightpanel-toggle-lock-btn"
+                      onClick={() => {
+                        const newLocked = !selectedObject.isLocked;
+                        updateObject(selectedObject.id, { isLocked: newLocked });
+                        if (newLocked) {
+                          if (setSelectedObjectId) setSelectedObjectId(null);
+                        }
+                      }}
+                      className={`w-full py-2 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
+                        selectedObject.isLocked
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40'
+                          : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-700'
+                      }`}
+                      title={selectedObject.isLocked ? "Click to unlock this drawing and enable tools" : "Click to lock this drawing on its layer (cannot move, color, or apply tools)"}
+                    >
+                      {selectedObject.isLocked ? (
+                        <>
+                          <Lock className="w-4 h-4 text-white" />
+                          <span>Locked on Layer (Click to Unlock)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Unlock className="w-4 h-4 text-emerald-400" />
+                          <span>Lock Drawing on Layer</span>
+                        </>
+                      )}
+                    </button>
+
+                    <p className="text-[9.5px] text-neutral-400 leading-tight">
+                      {selectedObject.isLocked
+                        ? '🔒 This drawing is locked on its layer. It cannot be moved, colored, or modified until unlocked.'
+                        : '🔓 This drawing is unlocked. All drawing tools, deformations, and styling features apply strictly.'}
+                    </p>
+                  </div>
+                )}
+
                 {/* LASSO DEFORM & SELECTION PANEL */}
                 {selectedObject && (
                   <div className="space-y-4 bg-amber-500/5 p-4 rounded-2xl border border-amber-500/20 shadow-lg shadow-black/20">
