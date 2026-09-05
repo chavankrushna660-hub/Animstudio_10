@@ -2,7 +2,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 const EMPTY_ARRAY: any[] = [];
 import { RotateCcw, Sparkles, Feather, ZoomIn, ZoomOut, Maximize2, Activity, GitCommit } from 'lucide-react';
-import { Point, VectorObject, Bone, Pivot, Frame, Transform, RealismSettings, LassoControlPoint, SmartWarpPin, BrushSettings, LiquifyBrushSettings, CurvePathState, FlexCurveState, FlexCurveControlPoint, CustomVectorDeformNode, CustomVectorDeformState, Layer, PointShapeNode, PointShapeState, SculptBrushState, LineEditState, LineEditNode, VSTState, SmartCorrectState } from '../types';
+import { Point, VectorObject, Bone, Pivot, Frame, Transform, RealismSettings, LassoControlPoint, SmartWarpPin, BrushSettings, LiquifyBrushSettings, CurvePathState, FlexCurveState, FlexCurveControlPoint, CustomVectorDeformNode, CustomVectorDeformState, Layer, PointShapeNode, PointShapeState, SculptBrushState, LineEditState, LineEditNode, VSTState, SmartCorrectState, EraserSettings, KnifeSettings, PivotSettings, MLSettings } from '../types';
+import { stabilizeStrokePoints, recognizeGeometricShape, realVectorErase, realVectorKnifeCut, SpatialHashGrid } from '../utils/smartMLAnimator';
 import { calculateCustomVectorDeformedPoints, calculateRigidLinearDeformedPoints } from '../utils/vectorDeform';
 import { transform3DVertex, transform3DVertices, project3DVertex, getFaceLightColor, deformVertices3D, extrude2DTo3D } from '../utils/engine3D';
 import { Renderer3D } from '../utils/extruded3D';
@@ -63,6 +64,12 @@ import {
   resampleExtrusionAreaSubPaths,
   getDeformedLocalPoint
 } from '../utils/meshPuppetWrapEngine';
+import { renderBrushSegment, renderOrganicBrushStroke, applyBrushSettingsToCtx } from '../utils/brushEngine';
+import { applyRealVectorEraser } from '../utils/eraserEngine';
+import { evaluateCubicBezier as evalCubicBezierEngine, convertAnchorsToVectorPoints, drawBezierOverlay, findHitBezierElement } from '../utils/bezierEngine';
+import { sliceVectorObjectWithLine } from '../utils/knifeEngine';
+import { applyMovingLeastSquaresDeformation } from '../utils/mlsPuppetEngine';
+import { BezierAnchor } from '../types';
 
 function getTransparentColor(colorStr: string): string {
   if (!colorStr) return 'rgba(255, 255, 255, 0)';
@@ -1427,6 +1434,26 @@ const drawVariableWidthStrokeInternal = (
   segments.forEach(seg => {
     if (seg.length === 0) return;
 
+    // Advanced & Organic Physical Media Brushes (Charcoal, Ink, Oil, Watercolor, Airbrush, Crayon, Spray, Dotted, Dashed, Ribbon, Organic) or Jitter
+    if (
+      ['charcoal', 'ink', 'oil', 'watercolor', 'airbrush', 'crayon', 'spray', 'dotted', 'dashed', 'ribbon', 'organic'].includes(brushType) ||
+      brush?.jitterEnabled ||
+      brush?.rotationJitter ||
+      brush?.sizeJitter
+    ) {
+      try {
+        renderBrushSegment(ctx, seg, {
+          strokeColor: baseColor,
+          strokeWidth: baseWidth,
+          brushType: brushType as any,
+          ...brush
+        } as BrushSettings);
+        return;
+      } catch (brushErr) {
+        console.error('Advanced brushEngine error:', brushErr);
+      }
+    }
+
     if (brushType === 'calligraphy') {
       // 2. Calligraphy Chisel Nib Brush
       const angle = ((brush?.chiselAngle ?? 45) * Math.PI) / 180;
@@ -1661,6 +1688,14 @@ interface CanvasAreaProps {
   setLineEditState?: React.Dispatch<React.SetStateAction<LineEditState>>;
   mwpState?: MeshWarpPuppetState;
   setMwpState?: React.Dispatch<React.SetStateAction<MeshWarpPuppetState>>;
+  eraserSettings?: EraserSettings;
+  setEraserSettings?: React.Dispatch<React.SetStateAction<EraserSettings>>;
+  knifeSettings?: KnifeSettings;
+  setKnifeSettings?: React.Dispatch<React.SetStateAction<KnifeSettings>>;
+  pivotSettings?: PivotSettings;
+  setPivotSettings?: React.Dispatch<React.SetStateAction<PivotSettings>>;
+  mlSettings?: MLSettings;
+  setMlSettings?: React.Dispatch<React.SetStateAction<MLSettings>>;
 }
 
 const initializeCageState = (obj: VectorObject): any => {
@@ -1812,6 +1847,14 @@ export default function CanvasArea({
   setLineEditState,
   mwpState,
   setMwpState,
+  eraserSettings,
+  setEraserSettings,
+  knifeSettings,
+  setKnifeSettings,
+  pivotSettings,
+  setPivotSettings,
+  mlSettings,
+  setMlSettings,
 }: CanvasAreaProps) {
   React.useEffect(() => {
     if (registerInverseDeformer) {
@@ -1903,24 +1946,29 @@ export default function CanvasArea({
   const [tempArtboardW, setTempArtboardW] = useState<string>(artboardW.toString());
   const [tempArtboardH, setTempArtboardH] = useState<string>(artboardH.toString());
 
-  // Keep temp artboard inputs synced only when opening/closing panel or changing props
-  const prevArtboardRef = useRef({ w: artboardW, h: artboardH });
-  if (prevArtboardRef.current.w !== artboardW || prevArtboardRef.current.h !== artboardH) {
-    prevArtboardRef.current = { w: artboardW, h: artboardH };
-    if (tempArtboardW !== artboardW.toString()) setTempArtboardW(artboardW.toString());
-    if (tempArtboardH !== artboardH.toString()) setTempArtboardH(artboardH.toString());
-  }
+  // Keep temp artboard inputs synced safely when props change
+  useEffect(() => {
+    setTempArtboardW(artboardW.toString());
+    setTempArtboardH(artboardH.toString());
+  }, [artboardW, artboardH]);
 
   const recenterCanvas = () => {
     try {
       const safeDimW = Math.max(100, Number.isFinite(dimensions.width) && dimensions.width > 0 ? dimensions.width : 1200);
       const safeDimH = Math.max(100, Number.isFinite(dimensions.height) && dimensions.height > 0 ? dimensions.height : 800);
+      const safeArtW = Math.max(100, Number.isFinite(artboardW) && artboardW > 0 ? artboardW : 1920);
+      const safeArtH = Math.max(100, Number.isFinite(artboardH) && artboardH > 0 ? artboardH : 1080);
 
-      // Keep canvas 100% full screen with 1.0 zoom scale and 0 offset
-      setZoomScale(1.0);
-      setZoomOffset({ x: 0, y: 0 });
-      setArtboardW(safeDimW);
-      setArtboardH(safeDimH);
+      const scaleX = safeDimW / safeArtW;
+      const scaleY = safeDimH / safeArtH;
+      const fitScale = Math.min(1.0, Math.min(scaleX, scaleY) * 0.95);
+      const finalScale = Math.max(0.1, Number.isFinite(fitScale) ? fitScale : 1.0);
+
+      const offsetX = (safeDimW - safeArtW * finalScale) / 2;
+      const offsetY = (safeDimH - safeArtH * finalScale) / 2;
+
+      setZoomScale(finalScale);
+      setZoomOffset({ x: offsetX, y: offsetY });
     } catch (err) {
       console.error("Recenter canvas failed", err);
     }
@@ -2344,10 +2392,14 @@ export default function CanvasArea({
     };
   }, []);
 
-  // Recenter automatically whenever dimensions, artboardW or artboardH change
+  // Recenter automatically on mount or when container dimensions change
+  const initialCenteredRef = useRef(false);
   useEffect(() => {
-    recenterCanvas();
-  }, [dimensions.width, dimensions.height, artboardW, artboardH]);
+    if (!initialCenteredRef.current && dimensions.width > 0 && dimensions.height > 0) {
+      initialCenteredRef.current = true;
+      recenterCanvas();
+    }
+  }, [dimensions.width, dimensions.height]);
 
   // Clean up tool-specific temporary states when switching between tools
   useEffect(() => {
@@ -2366,6 +2418,15 @@ export default function CanvasArea({
     setCutterPath(prev => prev.length ? [] : prev);
     setSelectedContourPointIndex(prev => prev !== null ? null : prev);
     setSelectedContourHandle(prev => prev !== null ? null : prev);
+    if (activeTool !== 'PEN') {
+      activePenObjectIdRef.current = null;
+      setActivePenObjectId(null);
+      bezierAnchorsRef.current = [];
+      setBezierAnchors([]);
+      setSelectedAnchorIdx(null);
+      setIsDraggingBezierHandle(false);
+      setDraggedHandleType(null);
+    }
   }, [activeTool]);
 
   const getTargetOr360ActiveObject = (id: string | null): VectorObject | null => {
@@ -2509,6 +2570,129 @@ export default function CanvasArea({
 
   // Pen path creation state
   const [penPoints, setPenPoints] = useState<Point[]>([]);
+  const [bezierAnchors, setBezierAnchors] = useState<BezierAnchor[]>([]);
+  const bezierAnchorsRef = useRef<BezierAnchor[]>([]);
+  const [selectedAnchorIdx, setSelectedAnchorIdx] = useState<number | null>(null);
+  const [isDraggingBezierHandle, setIsDraggingBezierHandle] = useState<boolean>(false);
+  const [draggedHandleType, setDraggedHandleType] = useState<'anchor' | 'handleIn' | 'handleOut' | 'newAnchor' | null>(null);
+  const [activePenObjectId, setActivePenObjectId] = useState<string | null>(null);
+  const activePenObjectIdRef = useRef<string | null>(null);
+
+  // Keep bezierAnchorsRef in sync
+  useEffect(() => {
+    bezierAnchorsRef.current = bezierAnchors;
+  }, [bezierAnchors]);
+
+  // Pen tool event listeners and keyboard shortcuts
+  useEffect(() => {
+    const handleErasePen = () => {
+      try {
+        if (activePenObjectIdRef.current) {
+          const idToDelete = activePenObjectIdRef.current;
+          setObjects(prev => {
+            const next = { ...prev };
+            delete next[idToDelete];
+            return next;
+          });
+          activePenObjectIdRef.current = null;
+          setActivePenObjectId(null);
+        }
+        bezierAnchorsRef.current = [];
+        setBezierAnchors([]);
+        setSelectedAnchorIdx(null);
+        setIsDraggingBezierHandle(false);
+        setDraggedHandleType(null);
+      } catch (err) {
+        console.error('handleErasePen error:', err);
+      }
+    };
+
+    const handleFinishPen = () => {
+      try {
+        activePenObjectIdRef.current = null;
+        setActivePenObjectId(null);
+        bezierAnchorsRef.current = [];
+        setBezierAnchors([]);
+        setSelectedAnchorIdx(null);
+        setIsDraggingBezierHandle(false);
+        setDraggedHandleType(null);
+      } catch (err) {
+        console.error('handleFinishPen error:', err);
+      }
+    };
+
+    const handleEraseAnchor = () => {
+      try {
+        if (selectedAnchorIdx !== null) {
+          const prev = bezierAnchorsRef.current;
+          const next = prev.filter((_, idx) => idx !== selectedAnchorIdx);
+          bezierAnchorsRef.current = next;
+          setBezierAnchors(next);
+          setSelectedAnchorIdx(null);
+
+          if (next.length === 0) {
+            if (activePenObjectIdRef.current) {
+              const idToDelete = activePenObjectIdRef.current;
+              activePenObjectIdRef.current = null;
+              setActivePenObjectId(null);
+              setObjects(objs => {
+                const copy = { ...objs };
+                delete copy[idToDelete];
+                return copy;
+              });
+            }
+          } else {
+            const curvePts = convertAnchorsToVectorPoints(next, false);
+            if (activePenObjectIdRef.current) {
+              const penId = activePenObjectIdRef.current;
+              setObjects(objs => {
+                if (!objs[penId]) return objs;
+                return {
+                  ...objs,
+                  [penId]: {
+                    ...objs[penId],
+                    points: curvePts
+                  }
+                };
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('handleEraseAnchor error:', err);
+      }
+    };
+
+    const handlePenKeyDown = (e: KeyboardEvent) => {
+      if (activeTool !== 'PEN') return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedAnchorIdx !== null) {
+          e.preventDefault();
+          handleEraseAnchor();
+        } else if (activePenObjectIdRef.current) {
+          e.preventDefault();
+          handleErasePen();
+        }
+      } else if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        handleFinishPen();
+      }
+    };
+
+    window.addEventListener('anim:erase-pen-drawing', handleErasePen);
+    window.addEventListener('anim:finish-pen-stroke', handleFinishPen);
+    window.addEventListener('anim:erase-selected-anchor', handleEraseAnchor);
+    window.addEventListener('keydown', handlePenKeyDown);
+
+    return () => {
+      window.removeEventListener('anim:erase-pen-drawing', handleErasePen);
+      window.removeEventListener('anim:finish-pen-stroke', handleFinishPen);
+      window.removeEventListener('anim:erase-selected-anchor', handleEraseAnchor);
+      window.removeEventListener('keydown', handlePenKeyDown);
+    };
+  }, [activeTool, selectedAnchorIdx]);
 
   // Bone drawing state
   const [boneStartPoint, setBoneStartPoint] = useState<Point | null>(null);
@@ -3229,47 +3413,82 @@ export default function CanvasArea({
 
   // Erase any drawing points under the mouse/pointer
   const erasePointsAt = (pt: Point) => {
-    const activeLayer = layers ? layers.find(l => l.id === activeLayerId) : null;
-    if (activeLayer && (activeLayer.locked || activeLayer.visible === false || activeLayer.opacity === 0 || (activeLayer as any).isHidden)) {
-      return;
-    }
+    try {
+      const activeLayer = layers ? layers.find(l => l.id === activeLayerId) : null;
+      if (activeLayer && (activeLayer.locked || activeLayer.visible === false || activeLayer.opacity === 0 || (activeLayer as any).isHidden)) {
+        return;
+      }
 
-    setObjects(prev => {
-      const updated = { ...prev };
-      let changed = false;
-      
-      Object.keys(updated).forEach(id => {
-        const obj = updated[id];
-        if (obj.isHidden || obj.isLocked) return;
-        // Strictly protect objects on inactive layers or locked layers from being erased
-        const effLayerId = obj.layerId || (layers && layers[0] ? layers[0].id : 'layer_1');
-        const layer = layers ? layers.find(l => l.id === effLayerId) : null;
-        if (layer && (layer.visible === false || (layer as any).isHidden || layer.locked || layer.opacity === 0)) return;
-        if (effLayerId !== activeLayerId) return;
+      const eraseRadius = eraserSettings?.radius ?? 20;
+      const eraseMode = (eraserSettings?.mode === 'stroke' ? 'stroke' : 'cut') as 'cut' | 'stroke';
+      const targetLayer = eraserSettings?.eraseActiveLayerOnly === false ? undefined : activeLayerId;
 
-        const filteredPoints = obj.points.filter(p => {
-          const worldPt = localToWorld(p, obj.transform, obj.pivots[0]);
-          return distance(worldPt, pt) > 20; // 20px eraser radius
-        });
-
-        if (filteredPoints.length !== obj.points.length) {
-          changed = true;
-          if (filteredPoints.length < 2) {
-            delete updated[id];
-          } else {
-            updated[id] = {
-              ...obj,
-              points: filteredPoints
-            };
+      let penDeleted = false;
+      setObjects(prev => {
+        try {
+          const res = applyRealVectorEraser(prev, pt, eraseRadius, eraseMode, targetLayer);
+          if (res.affected) {
+            if (activePenObjectIdRef.current && !res.updatedObjects[activePenObjectIdRef.current]) {
+              penDeleted = true;
+            }
+            return res.updatedObjects;
           }
+          return prev;
+        } catch (err) {
+          console.error('applyRealVectorEraser error:', err);
+          return prev;
         }
       });
 
-      if (changed) {
-        return updated;
+      if (penDeleted) {
+        activePenObjectIdRef.current = null;
+        setActivePenObjectId(null);
+        bezierAnchorsRef.current = [];
+        setBezierAnchors([]);
+        setSelectedAnchorIdx(null);
       }
-      return prev;
-    });
+
+      // Also erase any active pen anchors under eraser
+      const currentAnchors = bezierAnchorsRef.current;
+      if (currentAnchors.length > 0) {
+        const remaining = currentAnchors.filter(a => distance(pt, a) > eraseRadius);
+        if (remaining.length !== currentAnchors.length) {
+          bezierAnchorsRef.current = remaining;
+          setBezierAnchors(remaining);
+          setSelectedAnchorIdx(null);
+
+          if (remaining.length === 0) {
+            if (activePenObjectIdRef.current) {
+              const idToDelete = activePenObjectIdRef.current;
+              activePenObjectIdRef.current = null;
+              setActivePenObjectId(null);
+              setObjects(objs => {
+                const nextObjs = { ...objs };
+                delete nextObjs[idToDelete];
+                return nextObjs;
+              });
+            }
+          } else {
+            const curvePts = convertAnchorsToVectorPoints(remaining, false);
+            if (activePenObjectIdRef.current) {
+              const penId = activePenObjectIdRef.current;
+              setObjects(objs => {
+                if (!objs[penId]) return objs;
+                return {
+                  ...objs,
+                  [penId]: {
+                    ...objs[penId],
+                    points: curvePts
+                  }
+                };
+              });
+            }
+          }
+        }
+      }
+    } catch (outerErr) {
+      console.error('erasePointsAt error:', outerErr);
+    }
   };
 
   // Pointer Down event handler
@@ -3959,37 +4178,81 @@ export default function CanvasArea({
       return;
     }
 
-    // 5. Vector Pen Tool creation logic
+    // 5. Vector Pen Tool creation logic (Anchor Points, Elastic Curve, Direction Handles, Direction Points)
     if (activeTool === 'PEN') {
-      if (penPoints.length > 0 && distance(coords, penPoints[0]) < 12) {
-        if (penPoints.length >= 3) {
-          const newId = `obj_${Date.now()}`;
-          const name = `PenPath_${Object.keys(objects).length + 1}`;
-          const newObj: VectorObject = {
-            id: newId,
-            name,
-            type: 'shape',
-            shapeType: 'rectangle',
-            points: [...penPoints, penPoints[0]],
-            strokeColor: '#E53935',
-            strokeWidth: 3.5,
+      try {
+        const hitRadius = 14 / Math.max(0.2, zoomScale);
+        const hit = findHitBezierElement(coords, bezierAnchors, hitRadius);
+
+        if (hit) {
+          setSelectedAnchorIdx(hit.index);
+          setDraggedHandleType(hit.type);
+          setIsDraggingBezierHandle(true);
+          return;
+        }
+
+        // Add new Anchor Point with Direction Handles
+        const newAnchor: BezierAnchor = {
+          id: `anchor_${Date.now()}_${bezierAnchors.length}`,
+          x: coords.x,
+          y: coords.y,
+          handleOut: { x: coords.x, y: coords.y },
+          handleIn: { x: coords.x, y: coords.y },
+          isCorner: false,
+        };
+        const nextAnchors = [...bezierAnchors, newAnchor];
+        bezierAnchorsRef.current = nextAnchors;
+        setBezierAnchors(nextAnchors);
+        setSelectedAnchorIdx(nextAnchors.length - 1);
+        setDraggedHandleType('newAnchor');
+        setIsDraggingBezierHandle(true);
+
+        // Generate the real-time vector stroke immediately - no need to connect first and last point!
+        const curvePts = convertAnchorsToVectorPoints(nextAnchors, false);
+        let penObjId = activePenObjectIdRef.current;
+
+        if (!penObjId || !objects[penObjId]) {
+          penObjId = `obj_${Date.now()}`;
+          activePenObjectIdRef.current = penObjId;
+          setActivePenObjectId(penObjId);
+
+          const strokeObj: VectorObject = {
+            id: penObjId,
+            name: `PenStroke_${Object.keys(objects).length + 1}`,
+            type: 'stroke',
+            points: curvePts,
+            strokeColor: brushSettings?.strokeColor || '#E53935',
+            strokeWidth: brushSettings?.strokeWidth || 3.5,
+            brushType: brushSettings?.brushType || 'solid',
             fillColor: 'transparent',
-            opacity: 1,
+            opacity: brushSettings?.opacity ?? 1,
             transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
-            pivots: [{ id: `pvt_${Date.now()}`, name: 'Pivot_1', localX: penPoints[0].x, localY: penPoints[0].y, locked: false }],
+            pivots: [{ id: `pvt_${Date.now()}`, name: 'Pivot_1', localX: coords.x, localY: coords.y, locked: false }],
             parentId: null,
             childrenIds: [],
             layerId: activeLayerId,
             isLocked: false,
             isHidden: false,
           };
-          setObjects(prev => ({ ...prev, [newId]: newObj }));
-          setSelectedObjectId(newId);
-          historyPush();
+
+          setObjects(prev => ({ ...prev, [penObjId!]: strokeObj }));
+          setSelectedObjectId(penObjId);
+        } else {
+          setObjects(prev => {
+            if (!prev[penObjId!]) return prev;
+            return {
+              ...prev,
+              [penObjId!]: {
+                ...prev[penObjId!],
+                points: curvePts,
+                strokeColor: brushSettings?.strokeColor || prev[penObjId!].strokeColor,
+                strokeWidth: brushSettings?.strokeWidth || prev[penObjId!].strokeWidth,
+              }
+            };
+          });
         }
-        setPenPoints([]);
-      } else {
-        setPenPoints(prev => [...prev, coords]);
+      } catch (penErr) {
+        console.error('PEN tool pointerDown error:', penErr);
       }
       return;
     }
@@ -5925,6 +6188,44 @@ export default function CanvasArea({
       setStrokePoints([startPt]);
       return;
     }
+
+    // 11.1 Vector Eraser Tool Logic
+    if (activeTool === 'ERS') {
+      setIsDrawing(true);
+      erasePointsAt(coords);
+      return;
+    }
+
+    // 11.2 Knife Slicing Tool Logic
+    if (activeTool === 'KNF') {
+      setDragMode('pivot');
+      setKnifePath([coords]);
+      return;
+    }
+
+    // 11.3 Pivot Transform Origin Tool Logic
+    if (activeTool === 'PVT') {
+      if (selectedObjectId && objects[selectedObjectId]) {
+        const obj = objects[selectedObjectId];
+        const localCoord = worldToLocal(coords, obj.transform, { localX: 0, localY: 0 });
+        const currentPivots = obj.pivots ? [...obj.pivots] : [{ id: `pvt_${Date.now()}`, name: 'Pivot_1', localX: 0, localY: 0, locked: false }];
+        currentPivots[0] = {
+          ...currentPivots[0],
+          localX: Number(localCoord.x.toFixed(2)),
+          localY: Number(localCoord.y.toFixed(2))
+        };
+        updateObjectProperties(selectedObjectId, { pivots: currentPivots });
+        historyPush();
+      } else {
+        const clickedObj = performHitTest(coords);
+        if (clickedObj) {
+          setSelectedObjectId(clickedObj.id);
+        }
+      }
+      return;
+    }
+
+
     } catch (err: any) {
       console.error("Pointer down handler failed:", err);
     }
@@ -7152,74 +7453,72 @@ export default function CanvasArea({
       const S = pointShapeState.brushStrength ?? 0.5;
       const bType = pointShapeState.brushType || 'push';
 
-      setPointShapeState(prev => {
-        if (!prev.nodes || prev.nodes.length === 0) return prev;
-        const totalNodes = prev.nodes.length;
-        let modified = false;
+      if (!pointShapeState.nodes || pointShapeState.nodes.length === 0) return;
+      const totalNodes = pointShapeState.nodes.length;
+      let modified = false;
 
-        const nextNodes = prev.nodes.map((node, i) => {
-          const d = distance(coords, { x: node.x, y: node.y });
-          if (d < R) {
-            modified = true;
-            const w = Math.pow(1 - d / R, 2) * S;
+      const nextNodes = pointShapeState.nodes.map((node, i) => {
+        const d = distance(coords, { x: node.x, y: node.y });
+        if (d < R) {
+          modified = true;
+          const w = Math.pow(1 - d / R, 2) * S;
 
-            if (bType === 'push') {
-              return {
-                ...node,
-                x: Number((node.x + dx * w).toFixed(2)),
-                y: Number((node.y + dy * w).toFixed(2))
-              };
-            } else if (bType === 'smooth') {
-              const prevNode = prev.nodes[(i - 1 + totalNodes) % totalNodes];
-              const nextNode = prev.nodes[(i + 1) % totalNodes];
-              const avgX = (prevNode.x + nextNode.x) / 2;
-              const avgY = (prevNode.y + nextNode.y) / 2;
-              return {
-                ...node,
-                x: Number((node.x + (avgX - node.x) * w * 0.4).toFixed(2)),
-                y: Number((node.y + (avgY - node.y) * w * 0.4).toFixed(2))
-              };
-            } else if (bType === 'inflate') {
-              const distCenter = Math.hypot(node.x - coords.x, node.y - coords.y) || 1;
-              const nx = (node.x - coords.x) / distCenter;
-              const ny = (node.y - coords.y) / distCenter;
-              return {
-                ...node,
-                x: Number((node.x + nx * w * 3).toFixed(2)),
-                y: Number((node.y + ny * w * 3).toFixed(2))
-              };
-            }
-          }
-          return node;
-        });
-
-        if (!modified) return prev;
-
-        // If target drawing is set, sync it too!
-        if (prev.targetDrawingId && objects[prev.targetDrawingId]) {
-          const tId = prev.targetDrawingId;
-          const targetObj = objects[tId];
-          if (targetObj) {
-            const pivot = targetObj.pivots?.[0] || { localX: 0, localY: 0 };
-            const localPts = nextNodes.map(n => worldToLocal({ x: n.x, y: n.y }, targetObj.transform, pivot));
-            setObjects(objPrev => {
-              if (!objPrev[tId]) return objPrev;
-              return {
-                ...objPrev,
-                [tId]: {
-                  ...objPrev[tId],
-                  points: localPts
-                }
-              };
-            });
+          if (bType === 'push') {
+            return {
+              ...node,
+              x: Number((node.x + dx * w).toFixed(2)),
+              y: Number((node.y + dy * w).toFixed(2))
+            };
+          } else if (bType === 'smooth') {
+            const prevNode = pointShapeState.nodes[(i - 1 + totalNodes) % totalNodes];
+            const nextNode = pointShapeState.nodes[(i + 1) % totalNodes];
+            const avgX = (prevNode.x + nextNode.x) / 2;
+            const avgY = (prevNode.y + nextNode.y) / 2;
+            return {
+              ...node,
+              x: Number((node.x + (avgX - node.x) * w * 0.4).toFixed(2)),
+              y: Number((node.y + (avgY - node.y) * w * 0.4).toFixed(2))
+            };
+          } else if (bType === 'inflate') {
+            const distCenter = Math.hypot(node.x - coords.x, node.y - coords.y) || 1;
+            const nx = (node.x - coords.x) / distCenter;
+            const ny = (node.y - coords.y) / distCenter;
+            return {
+              ...node,
+              x: Number((node.x + nx * w * 3).toFixed(2)),
+              y: Number((node.y + ny * w * 3).toFixed(2))
+            };
           }
         }
-
-        return {
-          ...prev,
-          nodes: nextNodes
-        };
+        return node;
       });
+
+      if (!modified) return;
+
+      setPointShapeState(prev => ({
+        ...prev,
+        nodes: nextNodes
+      }));
+
+      // If target drawing is set, sync it too outside the updater!
+      if (pointShapeState.targetDrawingId && objects[pointShapeState.targetDrawingId]) {
+        const tId = pointShapeState.targetDrawingId;
+        const targetObj = objects[tId];
+        if (targetObj) {
+          const pivot = targetObj.pivots?.[0] || { localX: 0, localY: 0 };
+          const localPts = nextNodes.map(n => worldToLocal({ x: n.x, y: n.y }, targetObj.transform, pivot));
+          setObjects(objPrev => {
+            if (!objPrev[tId]) return objPrev;
+            return {
+              ...objPrev,
+              [tId]: {
+                ...objPrev[tId],
+                points: localPts
+              }
+            };
+          });
+        }
+      }
       return;
     }
 
@@ -7998,6 +8297,7 @@ export default function CanvasArea({
           });
         } else {
           const localPos = worldToLocal(coords, obj.transform, obj.pivots[0]);
+          let changedDraggedIndex: number | null = null;
           setObjects(prev => {
             if (!prev[selectedObjectId]) return prev;
             const updatedPoints = [...prev[selectedObjectId].points];
@@ -8069,7 +8369,7 @@ export default function CanvasArea({
             }
 
             if (nextDraggedIndex !== draggedMeshPointIndex) {
-              setTimeout(() => setDraggedMeshPointIndex(nextDraggedIndex), 0);
+              changedDraggedIndex = nextDraggedIndex;
             }
 
             const targetObj = prev[selectedObjectId];
@@ -8101,6 +8401,10 @@ export default function CanvasArea({
               }
             };
           });
+
+          if (changedDraggedIndex !== null) {
+            setDraggedMeshPointIndex(changedDraggedIndex);
+          }
         }
       }
       return;
@@ -8135,31 +8439,105 @@ export default function CanvasArea({
           ctx.translate(zoomOffset.x, zoomOffset.y);
           ctx.scale(zoomScale, zoomScale);
 
-          // Configure active brush context style
-          applyBrushSettingsToCtx(ctx, brushSettings || {}, brushSettings?.strokeColor ?? '#000000', brushSettings?.strokeWidth ?? 5);
+          const brushType = brushSettings?.brushType || 'solid';
+          const isAdvanced = ['charcoal', 'ink', 'oil', 'watercolor', 'airbrush', 'crayon', 'spray', 'dotted', 'dashed', 'ribbon', 'organic'].includes(brushType) ||
+            brushSettings?.jitterEnabled || brushSettings?.rotationJitter || brushSettings?.sizeJitter;
 
-          ctx.beginPath();
-          if (lastPt) {
-            ctx.moveTo(lastPt.x, lastPt.y);
-            ctx.lineTo(nextPt.x, nextPt.y);
+          if (isAdvanced && brushSettings) {
+            try {
+              renderBrushSegment(ctx, [lastPt || nextPt, nextPt], brushSettings);
+            } catch (bErr) {
+              console.error('Fast paint brushEngine error:', bErr);
+            }
           } else {
-            ctx.arc(nextPt.x, nextPt.y, (brushSettings?.strokeWidth ?? 5) / 2, 0, Math.PI * 2);
-          }
+            // Configure active brush context style
+            applyBrushSettingsToCtx(ctx, brushSettings || {}, brushSettings?.strokeColor ?? '#000000', brushSettings?.strokeWidth ?? 5);
 
-          ctx.strokeStyle = brushSettings?.strokeColor ?? '#000000';
-          ctx.lineWidth = brushSettings?.strokeWidth ?? 5;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
+            ctx.beginPath();
+            if (lastPt) {
+              ctx.moveTo(lastPt.x, lastPt.y);
+              ctx.lineTo(nextPt.x, nextPt.y);
+            } else {
+              ctx.arc(nextPt.x, nextPt.y, (brushSettings?.strokeWidth ?? 5) / 2, 0, Math.PI * 2);
+            }
 
-          if (lastPt) {
-            ctx.stroke();
-          } else {
-            ctx.fillStyle = brushSettings?.strokeColor ?? '#000000';
-            ctx.fill();
+            ctx.strokeStyle = brushSettings?.strokeColor ?? '#000000';
+            ctx.lineWidth = brushSettings?.strokeWidth ?? 5;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            if (lastPt) {
+              ctx.stroke();
+            } else {
+              ctx.fillStyle = brushSettings?.strokeColor ?? '#000000';
+              ctx.fill();
+            }
           }
 
           ctx.restore();
         }
+      }
+      return;
+    }
+
+    if (activeTool === 'PEN' && isDraggingBezierHandle && selectedAnchorIdx !== null) {
+      try {
+        const prev = bezierAnchorsRef.current;
+        if (prev[selectedAnchorIdx]) {
+          const cur = prev[selectedAnchorIdx];
+          const updated = [...prev];
+
+          if (draggedHandleType === 'newAnchor' || draggedHandleType === 'handleOut') {
+            const dx = coords.x - cur.x;
+            const dy = coords.y - cur.y;
+            updated[selectedAnchorIdx] = {
+              ...cur,
+              handleOut: { x: cur.x + dx, y: cur.y + dy },
+              handleIn: { x: cur.x - dx, y: cur.y - dy },
+            };
+          } else if (draggedHandleType === 'handleIn') {
+            const dx = coords.x - cur.x;
+            const dy = coords.y - cur.y;
+            updated[selectedAnchorIdx] = {
+              ...cur,
+              handleIn: { x: cur.x + dx, y: cur.y + dy },
+              handleOut: { x: cur.x - dx, y: cur.y - dy },
+            };
+          } else if (draggedHandleType === 'anchor') {
+            const dx = coords.x - cur.x;
+            const dy = coords.y - cur.y;
+            updated[selectedAnchorIdx] = {
+              ...cur,
+              x: coords.x,
+              y: coords.y,
+              handleOut: cur.handleOut ? { x: cur.handleOut.x + dx, y: cur.handleOut.y + dy } : { x: coords.x, y: coords.y },
+              handleIn: cur.handleIn ? { x: cur.handleIn.x + dx, y: cur.handleIn.y + dy } : { x: coords.x, y: coords.y },
+            };
+          }
+
+          bezierAnchorsRef.current = updated;
+          setBezierAnchors(updated);
+
+          // Real-time update of stroke points in objects to stretch & bend live
+          const curvePts = convertAnchorsToVectorPoints(updated, false);
+          if (activePenObjectIdRef.current) {
+            const penId = activePenObjectIdRef.current;
+            setObjects(objs => {
+              if (!objs[penId]) return objs;
+              return {
+                ...objs,
+                [penId]: {
+                  ...objs[penId],
+                  points: curvePts,
+                  strokeColor: brushSettings?.strokeColor || objs[penId].strokeColor,
+                  strokeWidth: brushSettings?.strokeWidth || objs[penId].strokeWidth,
+                }
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.error('PEN handle dragging error:', err);
       }
       return;
     }
@@ -8809,53 +9187,82 @@ export default function CanvasArea({
           return;
         }
 
-        const box = calculateBoundingBox(originalObj.points);
-        const p1Points: Point[] = [];
-        const p2Points: Point[] = [];
-        
         const lineStart = knifePath[0];
         const lineEnd = knifePath[knifePath.length - 1];
 
-        for (const p of originalObj.points) {
-          const val = (lineEnd.x - lineStart.x) * (p.y - lineStart.y) - (lineEnd.y - lineStart.y) * (p.x - lineStart.x);
-          if (val >= 0) {
-            p1Points.push(p);
+        try {
+          const cutRes = sliceVectorObjectWithLine(
+            originalObj,
+            lineStart,
+            lineEnd,
+            knifeSettings?.separateDistance ?? 15
+          );
+
+          if (cutRes.success && cutRes.newObjects.length >= 2) {
+            const id1 = cutRes.newObjects[0].id;
+            setObjects(prev => {
+              const updated = { ...prev };
+              delete updated[selectedObjectId];
+              cutRes.newObjects.forEach(newO => {
+                updated[newO.id] = newO;
+              });
+              return updated;
+            });
+            setSelectedObjectId(id1);
+            historyPush();
           } else {
-            p2Points.push(p);
+            const p1Points: Point[] = [];
+            const p2Points: Point[] = [];
+            for (const p of (originalObj.points || [])) {
+              const val = (lineEnd.x - lineStart.x) * (p.y - lineStart.y) - (lineEnd.y - lineStart.y) * (p.x - lineStart.x);
+              if (val >= 0) {
+                p1Points.push(p);
+              } else {
+                p2Points.push(p);
+              }
+            }
+
+            if (p1Points.length > 2 && p2Points.length > 2) {
+              const id1 = `obj_${Date.now()}_1`;
+              const id2 = `obj_${Date.now()}_2`;
+
+              const piece1: VectorObject = {
+                ...originalObj,
+                id: id1,
+                name: `${originalObj.name}_part_1`,
+                points: p1Points,
+              };
+
+              const piece2: VectorObject = {
+                ...originalObj,
+                id: id2,
+                name: `${originalObj.name}_part_2`,
+                points: p2Points,
+              };
+
+              setObjects(prev => {
+                const updated = { ...prev };
+                delete updated[selectedObjectId];
+                updated[id1] = piece1;
+                updated[id2] = piece2;
+                return updated;
+              });
+
+              setSelectedObjectId(id1);
+              historyPush();
+            }
           }
-        }
-
-        if (p1Points.length > 2 && p2Points.length > 2) {
-          const id1 = `obj_${Date.now()}_1`;
-          const id2 = `obj_${Date.now()}_2`;
-
-          const piece1: VectorObject = {
-            ...originalObj,
-            id: id1,
-            name: `${originalObj.name}_part_1`,
-            points: p1Points,
-          };
-
-          const piece2: VectorObject = {
-            ...originalObj,
-            id: id2,
-            name: `${originalObj.name}_part_2`,
-            points: p2Points,
-          };
-
-          setObjects(prev => {
-            const updated = { ...prev };
-            delete updated[selectedObjectId];
-            updated[id1] = piece1;
-            updated[id2] = piece2;
-            return updated;
-          });
-
-          setSelectedObjectId(id1);
-          historyPush();
+        } catch (sliceErr) {
+          console.error('KNF sliceVectorObjectWithLine error:', sliceErr);
         }
       }
       setKnifePath([]);
+    }
+
+    if (activeTool === 'PEN' && isDraggingBezierHandle) {
+      setIsDraggingBezierHandle(false);
+      setDraggedHandleType(null);
+      historyPush();
     }
 
     setElasticWarningId(null);
@@ -12154,31 +12561,29 @@ export default function CanvasArea({
       }
     }
 
-    // Render active Pen path points & lines
-    if (activeTool === 'PEN' && penPoints.length > 0) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(penPoints[0].x, penPoints[0].y);
-      for (let i = 1; i < penPoints.length; i++) {
-        ctx.lineTo(penPoints[i].x, penPoints[i].y);
-      }
-      ctx.lineTo(currentCursorPos.x, currentCursorPos.y); // Dynamic rubberband line
-      ctx.strokeStyle = '#E53935';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
+    // Render active Pen path points & lines (Elastic Bezier Curve, Direction Handles, Direction Points, Anchor Points)
+    if (activeTool === 'PEN') {
+      try {
+        if (bezierAnchors.length > 0) {
+          ctx.save();
+          drawBezierOverlay(ctx, bezierAnchors, selectedAnchorIdx, false, zoomScale, brushSettings);
 
-      // Draw little control point circles
-      penPoints.forEach((pt, i) => {
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = i === 0 ? '#4CAF50' : '#FFEB3B';
-        ctx.fill();
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      });
-      ctx.restore();
+          // Subtle guide line to cursor when positioning next anchor
+          const lastAnchor = bezierAnchors[bezierAnchors.length - 1];
+          if (lastAnchor && currentCursorPos && !isDraggingBezierHandle) {
+            ctx.beginPath();
+            ctx.moveTo(lastAnchor.x, lastAnchor.y);
+            ctx.lineTo(currentCursorPos.x, currentCursorPos.y);
+            ctx.strokeStyle = brushSettings?.strokeColor || '#E53935';
+            ctx.lineWidth = Math.max(1, 1.2 / zoomScale);
+            ctx.setLineDash([4 / zoomScale, 4 / zoomScale]);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      } catch (penRenderErr) {
+        console.error('Error rendering PEN overlay:', penRenderErr);
+      }
     }
 
     // 🔘 PTS (Point Shape Sculptor) Persistent Drawing & Interactive Overlay
@@ -13023,7 +13428,11 @@ export default function CanvasArea({
     artboardW,
     artboardH,
     isRecording,
-    lineEditState
+    lineEditState,
+    bezierAnchors,
+    selectedAnchorIdx,
+    activePenObjectId,
+    brushSettings
   ]);
 
   const handleVdfDoneAndBind = (objId: string) => {

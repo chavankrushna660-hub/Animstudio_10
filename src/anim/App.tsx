@@ -41,7 +41,7 @@ import CanvasArea from './components/CanvasArea';
 import Timeline from './components/Timeline';
 import CustomDialog, { CustomDialogConfig } from './components/CustomDialog';
 import SavedAnimationsModal from './components/SavedAnimationsModal';
-import { VectorObject, Bone, Layer, Frame, Point, RealismSettings, View360, BrushSettings, Transform, LiquifyBrushSettings, PointShapeState, PointShapeNode, SculptBrushState, LineEditState, LineEditNode } from './types';
+import { VectorObject, Bone, Layer, Frame, Point, RealismSettings, View360, BrushSettings, Transform, LiquifyBrushSettings, PointShapeState, PointShapeNode, SculptBrushState, LineEditState, LineEditNode, EraserSettings, KnifeSettings, PivotSettings, MLSettings } from './types';
 import { localToWorld, worldToLocal, rotatePoint, calculateBoundingBox, unifyStrokesToSinglePath, isPointInPolygon, findClosestView360 } from './utils/math';
 import { 
   validateSimpleAuth, 
@@ -625,6 +625,45 @@ export default function App() {
     shadowBlur: 4,
     shadowOffsetX: 2,
     shadowOffsetY: 2,
+    randomRotation: false,
+    randomSize: false,
+    scatter: 0,
+    streamline: 0.6,
+  });
+
+  // Strict Real Vector Eraser Settings
+  const [eraserSettings, setEraserSettings] = useState<EraserSettings>({
+    radius: 25,
+    mode: 'cut',
+    eraseActiveLayerOnly: true,
+    hardness: 1.0,
+    feather: 0,
+    deleteEntireStroke: false
+  });
+
+  // Real Vector Knife Cutting Settings
+  const [knifeSettings, setKnifeSettings] = useState<KnifeSettings>({
+    cutMode: 'line',
+    separateDistance: 8,
+    keepSide: 'both',
+    smoothCut: true
+  });
+
+  // Pivot Point Settings
+  const [pivotSettings, setPivotSettings] = useState<PivotSettings>({
+    snapToGrid: true,
+    gridResolution: 9,
+    showCrosshair: true,
+    relativeToBBox: true
+  });
+
+  // Machine Learning Real-time Engine Settings
+  const [mlSettings, setMlSettings] = useState<MLSettings>({
+    stabilizerStrength: 0.7,
+    autoShapeDetection: true,
+    confidenceThreshold: 0.75,
+    spatialGridActive: true,
+    smartSubdivision: true
   });
 
   // Liquify brush settings
@@ -2099,6 +2138,112 @@ export default function App() {
     } catch (err: any) {
       console.error("Lasso separation error:", err);
       alert(`Failed to perform lasso separation: ${err.message || err}`);
+    }
+  };
+
+  const batchScaleLasso = (factor: number) => {
+    try {
+      if (!lassoPoints || lassoPoints.length < 3) return;
+      historyPush();
+      setObjects(prev => {
+        const updated = { ...prev };
+        (Object.values(prev) as VectorObject[]).forEach(obj => {
+          if (obj.isHidden || obj.isLocked || obj.type === '360_container') return;
+          const localPivot = obj.pivots?.[0] || { localX: 0, localY: 0 };
+          const worldPts = (obj.points || []).map(p => localToWorld(p, obj.transform, localPivot));
+          const boundsObj = calculateBoundingBox(worldPts);
+          const boundsLasso = calculateBoundingBox(lassoPoints);
+          const overlaps = !(boundsObj.x + boundsObj.width < boundsLasso.x ||
+                   boundsLasso.x + boundsLasso.width < boundsObj.x ||
+                   boundsObj.y + boundsObj.height < boundsLasso.y ||
+                   boundsLasso.y + boundsLasso.height < boundsObj.y);
+          if (overlaps) {
+            updated[obj.id] = {
+              ...obj,
+              transform: {
+                ...obj.transform,
+                scaleX: (obj.transform.scaleX ?? 1) * factor,
+                scaleY: (obj.transform.scaleY ?? 1) * factor
+              }
+            };
+          }
+        });
+        return updated;
+      });
+    } catch (err) {
+      console.error('Batch scale error:', err);
+    }
+  };
+
+  const batchColorLasso = (color: string) => {
+    try {
+      if (!lassoPoints || lassoPoints.length < 3) return;
+      historyPush();
+      setObjects(prev => {
+        const updated = { ...prev };
+        (Object.values(prev) as VectorObject[]).forEach(obj => {
+          if (obj.isHidden || obj.isLocked || obj.type === '360_container') return;
+          const localPivot = obj.pivots?.[0] || { localX: 0, localY: 0 };
+          const worldPts = (obj.points || []).map(p => localToWorld(p, obj.transform, localPivot));
+          const boundsObj = calculateBoundingBox(worldPts);
+          const boundsLasso = calculateBoundingBox(lassoPoints);
+          const overlaps = !(boundsObj.x + boundsObj.width < boundsLasso.x ||
+                   boundsLasso.x + boundsLasso.width < boundsObj.x ||
+                   boundsObj.y + boundsObj.height < boundsLasso.y ||
+                   boundsLasso.y + boundsLasso.height < boundsObj.y);
+          if (overlaps) {
+            updated[obj.id] = {
+              ...obj,
+              fillColor: color,
+              strokeColor: color
+            };
+          }
+        });
+        return updated;
+      });
+    } catch (err) {
+      console.error('Batch color error:', err);
+    }
+  };
+
+  const batchAlignLasso = (alignment: 'left' | 'center' | 'top' | 'bottom') => {
+    try {
+      if (!lassoPoints || lassoPoints.length < 3) return;
+      const boundsLasso = calculateBoundingBox(lassoPoints);
+      historyPush();
+      setObjects(prev => {
+        const updated = { ...prev };
+        (Object.values(prev) as VectorObject[]).forEach(obj => {
+          if (obj.isHidden || obj.isLocked || obj.type === '360_container') return;
+          const localPivot = obj.pivots?.[0] || { localX: 0, localY: 0 };
+          const worldPts = (obj.points || []).map(p => localToWorld(p, obj.transform, localPivot));
+          const boundsObj = calculateBoundingBox(worldPts);
+          const overlaps = !(boundsObj.x + boundsObj.width < boundsLasso.x ||
+                   boundsLasso.x + boundsLasso.width < boundsObj.x ||
+                   boundsObj.y + boundsObj.height < boundsLasso.y ||
+                   boundsLasso.y + boundsLasso.height < boundsObj.y);
+          if (overlaps) {
+            let newX = obj.transform.x;
+            let newY = obj.transform.y;
+            if (alignment === 'left') newX = boundsLasso.x;
+            else if (alignment === 'center') newX = boundsLasso.x + boundsLasso.width / 2;
+            else if (alignment === 'top') newY = boundsLasso.y;
+            else if (alignment === 'bottom') newY = boundsLasso.y + boundsLasso.height;
+
+            updated[obj.id] = {
+              ...obj,
+              transform: {
+                ...obj.transform,
+                x: newX,
+                y: newY
+              }
+            };
+          }
+        });
+        return updated;
+      });
+    } catch (err) {
+      console.error('Batch align error:', err);
     }
   };
 
@@ -3848,6 +3993,7 @@ export default function App() {
           setAdaptiveSubdivisionPoints={setAdaptiveSubdivisionPoints}
           duplicateObject={duplicateObject}
           duplicateLassoBatch={duplicateLassoBatch}
+          deleteLassoBatch={deleteLassoBatch}
           lassoPoints={lassoPoints}
           setLassoPoints={setLassoPoints}
           fillToolColor={fillToolColor}
@@ -3858,6 +4004,19 @@ export default function App() {
           ignoreInnerDrawings={ignoreInnerDrawings}
           setIgnoreInnerDrawings={setIgnoreInnerDrawings}
           applyColorFillToSelected={applyColorFillToSelected}
+          brushSettings={brushSettings}
+          setBrushSettings={setBrushSettings}
+          eraserSettings={eraserSettings}
+          setEraserSettings={setEraserSettings}
+          knifeSettings={knifeSettings}
+          setKnifeSettings={setKnifeSettings}
+          pivotSettings={pivotSettings}
+          setPivotSettings={setPivotSettings}
+          mlSettings={mlSettings}
+          setMlSettings={setMlSettings}
+          batchScaleLasso={batchScaleLasso}
+          batchColorLasso={batchColorLasso}
+          batchAlignLasso={batchAlignLasso}
         />
 
         {/* Central Vector Canvas Area */}
@@ -3906,6 +4065,14 @@ export default function App() {
           ignoreInnerDrawings={ignoreInnerDrawings}
           brushSettings={brushSettings}
           setBrushSettings={setBrushSettings}
+          eraserSettings={eraserSettings}
+          setEraserSettings={setEraserSettings}
+          knifeSettings={knifeSettings}
+          setKnifeSettings={setKnifeSettings}
+          pivotSettings={pivotSettings}
+          setPivotSettings={setPivotSettings}
+          mlSettings={mlSettings}
+          setMlSettings={setMlSettings}
           selectedDeformPointIndex={selectedDeformPointIndex}
           setSelectedDeformPointIndex={setSelectedDeformPointIndex}
           selectedDeformPointType={selectedDeformPointType}

@@ -14,26 +14,42 @@ import {
   Link, 
   Unlink, 
   Trash2, 
-  Maximize2,
-  ChevronLeft,
-  Image as ImageIcon,
-  Type as TextIcon,
-  Sparkles,
-  Layers,
-  Layers as LayerIcon,
-  Box,
-  Circle,
-  Car,
-  Smile,
-  Armchair,
-  Copy,
-  PaintBucket,
-  CheckSquare,
-  Edit2,
-  Check,
-  GitCommit
+  Maximize2, 
+  ChevronLeft, 
+  Image as ImageIcon, 
+  Type as TextIcon, 
+  Sparkles, 
+  Layers, 
+  Layers as LayerIcon, 
+  Box, 
+  Circle, 
+  Car, 
+  Smile, 
+  Armchair, 
+  Copy, 
+  PaintBucket, 
+  CheckSquare, 
+  Edit2, 
+  Check, 
+  GitCommit,
+  Brush,
+  Eraser,
+  PenTool,
+  Scissors,
+  Crosshair,
+  Cpu,
+  RefreshCw,
+  Sliders,
+  Palette,
+  Zap,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignVerticalSpaceAround,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
-import { VectorObject, Layer } from '../types';
+import { VectorObject, Layer, BrushSettings, EraserSettings, KnifeSettings, PivotSettings, MLSettings } from '../types';
 import { getDailyLimitStatus } from '../utils/engine3D';
 import { sanitizeString } from '../utils/securityGuard';
 
@@ -70,6 +86,7 @@ interface LeftPanelProps {
   setAdaptiveSubdivisionPoints: (val: number) => void;
   duplicateObject: (id: string, offset?: { x: number; y: number }) => string | null;
   duplicateLassoBatch?: () => void;
+  deleteLassoBatch?: () => void;
   lassoPoints?: any[];
   setLassoPoints?: React.Dispatch<React.SetStateAction<any[]>>;
   fillToolColor?: string;
@@ -81,6 +98,19 @@ interface LeftPanelProps {
   setIgnoreInnerDrawings?: React.Dispatch<React.SetStateAction<boolean>>;
   applyColorFillToSelected?: () => void;
   setActiveTool?: (tool: string) => void;
+  brushSettings?: BrushSettings;
+  setBrushSettings?: React.Dispatch<React.SetStateAction<BrushSettings>>;
+  eraserSettings?: EraserSettings;
+  setEraserSettings?: React.Dispatch<React.SetStateAction<EraserSettings>>;
+  knifeSettings?: KnifeSettings;
+  setKnifeSettings?: React.Dispatch<React.SetStateAction<KnifeSettings>>;
+  pivotSettings?: PivotSettings;
+  setPivotSettings?: React.Dispatch<React.SetStateAction<PivotSettings>>;
+  mlSettings?: MLSettings;
+  setMlSettings?: React.Dispatch<React.SetStateAction<MLSettings>>;
+  batchScaleLasso?: (factor: number) => void;
+  batchColorLasso?: (color: string) => void;
+  batchAlignLasso?: (align: 'left' | 'center' | 'top' | 'bottom') => void;
 }
 
 export default function LeftPanel({
@@ -117,6 +147,7 @@ export default function LeftPanel({
   setAdaptiveSubdivisionPoints,
   duplicateObject,
   duplicateLassoBatch,
+  deleteLassoBatch,
   lassoPoints,
   setLassoPoints,
   fillToolColor,
@@ -127,6 +158,19 @@ export default function LeftPanel({
   ignoreInnerDrawings = true,
   setIgnoreInnerDrawings,
   applyColorFillToSelected,
+  brushSettings,
+  setBrushSettings,
+  eraserSettings,
+  setEraserSettings,
+  knifeSettings,
+  setKnifeSettings,
+  pivotSettings,
+  setPivotSettings,
+  mlSettings,
+  setMlSettings,
+  batchScaleLasso,
+  batchColorLasso,
+  batchAlignLasso,
 }: LeftPanelProps) {
   const [expandedNodes, setExpandedNodes] = useState<{ [id: string]: boolean }>({});
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -819,28 +863,630 @@ export default function LeftPanel({
               </div>
             )}
 
-            {/* 🎯 Lasso Batch Duplicate Option */}
+            {/* 🖌️ Brush Tool Controls */}
+            {(activeTool === 'BRS' || activeTool === 'VLB') && brushSettings && setBrushSettings && (
+              <div className="border border-amber-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="brush-tool-panel">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-amber-400">
+                    <Brush className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">Brush Tool Engine</span>
+                  </div>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-mono font-bold uppercase border border-amber-500/20">
+                    {brushSettings.brushType}
+                  </span>
+                </div>
+
+                {/* Brush Presets */}
+                <div className="space-y-1">
+                  <label className="text-[9px] text-neutral-400 font-bold uppercase flex justify-between">
+                    <span>Brush Medium Preset</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'solid', label: 'Solid' },
+                      { id: 'cold', label: 'Cold' },
+                      { id: 'dry', label: 'Dry Bristle' },
+                      { id: 'smooth', label: 'Smooth' },
+                      { id: 'water', label: 'Water' },
+                      { id: 'calligraphy', label: 'Calligraphy' },
+                      { id: 'pencil', label: 'Pencil' },
+                      { id: 'marker', label: 'Marker' },
+                      { id: 'airbrush', label: 'Airbrush' },
+                      { id: 'glow', label: 'Neon Glow' },
+                      { id: 'ink', label: 'Sumi Ink' },
+                      { id: 'charcoal', label: 'Charcoal' },
+                      { id: 'oil', label: 'Oil Impasto' },
+                      { id: 'watercolor', label: 'Watercolor' },
+                      { id: 'crayon', label: 'Wax Crayon' },
+                      { id: 'spray', label: 'Spray Paint' },
+                      { id: 'dotted', label: 'Dotted' },
+                      { id: 'dashed', label: 'Dashed' },
+                      { id: 'ribbon', label: 'Ribbon' },
+                      { id: 'organic', label: 'Organic Foliage' },
+                    ].map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          try {
+                            setBrushSettings(prev => ({ ...prev, brushType: p.id as any }));
+                          } catch (err) {
+                            console.error('Brush preset error:', err);
+                          }
+                        }}
+                        className={`text-[9px] py-1 px-1 rounded-lg font-bold border transition-all text-center truncate ${
+                          brushSettings.brushType === p.id
+                            ? 'bg-amber-500 text-neutral-950 border-amber-400 shadow-sm'
+                            : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stroke Size & Opacity */}
+                <div className="space-y-2 bg-neutral-900/60 p-2 rounded-xl border border-neutral-800">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Size:</span>
+                      <span className="text-amber-400 font-mono font-bold">{brushSettings.strokeWidth}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={200}
+                      value={brushSettings.strokeWidth}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, strokeWidth: Number(e.target.value) }));
+                        } catch (err) {
+                          console.error('Brush size change error:', err);
+                        }
+                      }}
+                      className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Opacity:</span>
+                      <span className="text-amber-400 font-mono font-bold">{Math.round((brushSettings.strokeOpacity ?? 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={5}
+                      max={100}
+                      value={Math.round((brushSettings.strokeOpacity ?? 1) * 100)}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, strokeOpacity: Number(e.target.value) / 100 }));
+                        } catch (err) {
+                          console.error('Brush opacity change error:', err);
+                        }
+                      }}
+                      className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Hardness / Flow:</span>
+                      <span className="text-amber-400 font-mono font-bold">{Math.round((brushSettings.hardness ?? 0.8) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round((brushSettings.hardness ?? 0.8) * 100)}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, hardness: Number(e.target.value) / 100 }));
+                        } catch (err) {
+                          console.error('Brush hardness change error:', err);
+                        }
+                      }}
+                      className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* 🎲 Organic Khadra Texture & Jitter Engine */}
+                <div className="space-y-2 bg-neutral-900/80 p-2.5 rounded-xl border border-amber-500/20">
+                  <div className="flex items-center gap-1.5 text-amber-300">
+                    <Zap className="w-3 h-3" />
+                    <span className="text-[9px] font-black uppercase tracking-wide">Khadra Texture &amp; Jitter</span>
+                  </div>
+                  
+                  {/* Random Rotation Toggle */}
+                  <label className="flex items-center justify-between cursor-pointer py-0.5">
+                    <span className="text-[9px] text-neutral-300 font-bold">Random Rotation (360°)</span>
+                    <input
+                      type="checkbox"
+                      checked={brushSettings.randomRotation ?? brushSettings.rotationJitter ?? false}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({
+                            ...prev,
+                            randomRotation: e.target.checked,
+                            rotationJitter: e.target.checked,
+                            jitterEnabled: e.target.checked || (prev.randomSize ?? prev.sizeJitter ?? false)
+                          }));
+                        } catch (err) {
+                          console.error('Rotation jitter error:', err);
+                        }
+                      }}
+                      className="accent-amber-500 rounded cursor-pointer"
+                    />
+                  </label>
+
+                  {/* Random Size Variation Toggle */}
+                  <label className="flex items-center justify-between cursor-pointer py-0.5">
+                    <span className="text-[9px] text-neutral-300 font-bold">Organic Size Jitter (5-20%)</span>
+                    <input
+                      type="checkbox"
+                      checked={brushSettings.randomSize ?? brushSettings.sizeJitter ?? false}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({
+                            ...prev,
+                            randomSize: e.target.checked,
+                            sizeJitter: e.target.checked,
+                            jitterEnabled: e.target.checked || (prev.randomRotation ?? prev.rotationJitter ?? false)
+                          }));
+                        } catch (err) {
+                          console.error('Size jitter error:', err);
+                        }
+                      }}
+                      className="accent-amber-500 rounded cursor-pointer"
+                    />
+                  </label>
+
+                  {/* Scatter Slider */}
+                  <div className="space-y-1 pt-1">
+                    <div className="flex justify-between text-[8.5px]">
+                      <span className="text-neutral-400 font-bold">Stamp Scatter:</span>
+                      <span className="text-amber-400 font-mono font-bold">{brushSettings.scatter ?? 0}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={40}
+                      value={brushSettings.scatter ?? 0}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, scatter: Number(e.target.value) }));
+                        } catch (err) {
+                          console.error('Scatter change error:', err);
+                        }
+                      }}
+                      className="w-full accent-amber-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Streamline Smoothing */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[8.5px]">
+                      <span className="text-neutral-400 font-bold">ML Curve Stabilizer:</span>
+                      <span className="text-emerald-400 font-mono font-bold">{Math.round((brushSettings.streamline ?? 0.5) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round((brushSettings.streamline ?? 0.5) * 100)}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, streamline: Number(e.target.value) / 100 }));
+                        } catch (err) {
+                          console.error('Streamline change error:', err);
+                        }
+                      }}
+                      className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Brush Color & Swatches */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[9px] text-neutral-400 font-bold uppercase">
+                    <span>Stroke Color</span>
+                    <input
+                      type="color"
+                      value={brushSettings.strokeColor ?? '#000000'}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, strokeColor: e.target.value }));
+                        } catch (err) {
+                          console.error('Stroke color error:', err);
+                        }
+                      }}
+                      className="w-5 h-5 rounded cursor-pointer border border-neutral-700 bg-transparent"
+                    />
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {['#000000', '#ffffff', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#78716c', '#06b6d4', '#84cc16', '#f43f5e', '#14b8a6'].map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => {
+                          try {
+                            setBrushSettings(prev => ({ ...prev, strokeColor: color }));
+                          } catch (err) {
+                            console.error('Color swatch click error:', err);
+                          }
+                        }}
+                        style={{ backgroundColor: color }}
+                        className={`h-5 rounded-md border ${brushSettings.strokeColor === color ? 'border-amber-400 ring-2 ring-amber-400/40 scale-105' : 'border-neutral-700'} transition-all`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 🧹 Eraser Tool Controls */}
+            {activeTool === 'ERS' && eraserSettings && setEraserSettings && (
+              <div className="border border-rose-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="eraser-tool-panel">
+                <div className="flex items-center justify-between text-rose-400">
+                  <div className="flex items-center gap-1.5">
+                    <Eraser className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">Strict Real Vector Eraser</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-300 font-mono font-bold uppercase border border-rose-500/20">
+                    No Paint
+                  </span>
+                </div>
+
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Strictly deletes vector paths and splits strokes into true separate segments. Never covers drawings with white paint!
+                </p>
+
+                {/* Eraser Size Slider & Circle Indicator */}
+                <div className="space-y-1.5 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
+                  <div className="flex justify-between text-[9px]">
+                    <span className="text-neutral-400 font-bold">Eraser Radius:</span>
+                    <span className="text-rose-400 font-mono font-bold">{eraserSettings.radius ?? 25}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={5}
+                    max={200}
+                    value={eraserSettings.radius ?? 25}
+                    onChange={(e) => {
+                      try {
+                        setEraserSettings(prev => ({ ...prev, radius: Number(e.target.value) }));
+                      } catch (err) {
+                        console.error('Eraser radius change error:', err);
+                      }
+                    }}
+                    className="w-full accent-rose-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                  />
+                  {/* Live circular preview indicator */}
+                  <div className="flex items-center justify-center py-2">
+                    <div
+                      style={{
+                        width: Math.min(60, (eraserSettings.radius ?? 25) * 1.5),
+                        height: Math.min(60, (eraserSettings.radius ?? 25) * 1.5)
+                      }}
+                      className="rounded-full border-2 border-dashed border-rose-400/80 bg-rose-500/10 flex items-center justify-center text-[8px] text-rose-300 font-mono"
+                    >
+                      {eraserSettings.radius}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Eraser Mode */}
+                <div className="space-y-1">
+                  <label className="text-[9px] text-neutral-400 font-bold uppercase">Eraser Mode</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { id: 'cut', label: 'Vector Cut / Slice', desc: 'Splits strokes into continuous segments' },
+                      { id: 'point', label: 'Point Erase', desc: 'Removes vertices inside radius' },
+                      { id: 'stroke', label: 'Whole Stroke', desc: 'Deletes touched stroke entirely' },
+                      { id: 'area', label: 'Area Erase', desc: 'Erases fills & points in area' }
+                    ].map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          try {
+                            setEraserSettings(prev => ({ ...prev, mode: m.id as any }));
+                          } catch (err) {
+                            console.error('Eraser mode error:', err);
+                          }
+                        }}
+                        className={`text-left p-1.5 rounded-lg border transition-all ${
+                          (eraserSettings.mode ?? 'cut') === m.id
+                            ? 'bg-rose-500 text-white border-rose-400 font-bold shadow-sm'
+                            : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                        }`}
+                      >
+                        <div className="text-[9px] font-bold">{m.label}</div>
+                        <div className="text-[7.5px] opacity-80 leading-tight">{m.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Active Layer Protect */}
+                <label className="flex items-center justify-between cursor-pointer py-1 bg-neutral-900/40 px-2 rounded-lg border border-neutral-800/60">
+                  <span className="text-[9px] text-neutral-300 font-bold">Erase Active Layer Only</span>
+                  <input
+                    type="checkbox"
+                    checked={eraserSettings.eraseActiveLayerOnly ?? true}
+                    onChange={(e) => {
+                      try {
+                        setEraserSettings(prev => ({ ...prev, eraseActiveLayerOnly: e.target.checked }));
+                      } catch (err) {
+                        console.error('Eraser layer toggle error:', err);
+                      }
+                    }}
+                    className="accent-rose-500 rounded cursor-pointer"
+                  />
+                </label>
+
+                {/* Instant Erase Actions */}
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        if (selectedObjectId) deleteObject(selectedObjectId);
+                      } catch (err) {
+                        console.error('Delete selected error:', err);
+                      }
+                    }}
+                    disabled={!selectedObjectId}
+                    className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 disabled:opacity-40 text-[9px] font-bold py-1.5 px-2 rounded-lg border border-neutral-800 transition-colors uppercase cursor-pointer text-center truncate"
+                  >
+                    Erase Selected
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        Object.keys(objects).forEach(id => {
+                          if (objects[id]?.layerId === activeLayerId) deleteObject(id);
+                        });
+                      } catch (err) {
+                        console.error('Clear layer error:', err);
+                      }
+                    }}
+                    className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[9px] font-black py-1.5 px-2 rounded-lg border border-rose-500/30 transition-colors uppercase cursor-pointer text-center truncate"
+                  >
+                    Clear Layer
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ✒️ Pen / Bezier Tool Controls */}
+            {activeTool === 'PEN' && (
+              <div className="border border-cyan-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="pen-tool-panel">
+                <div className="flex items-center justify-between text-cyan-400">
+                  <div className="flex items-center gap-1.5">
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">Vector Bézier Pen</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 font-mono font-bold uppercase border border-cyan-500/20">
+                    Real-time Bending
+                  </span>
+                </div>
+
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Click or drag to place <b>Anchor Points</b> and <b>Direction Tangents</b>. The stroke draws, blends, and bends in real time — no need to connect first and last point!
+                </p>
+
+                <div className="bg-neutral-900/80 p-2 rounded-xl border border-neutral-800 text-[9px] text-cyan-300 font-bold space-y-1">
+                  <div>• <b>Click & Drag:</b> Add anchor & pull handles to stretch/bend</div>
+                  <div>• <b>Real-time Stroke:</b> Stroke renders & blends live on canvas</div>
+                  <div>• <b>Edit Tangents:</b> Click square anchor or handle dots to reshape</div>
+                  <div>• <b>Erase Drawing:</b> Use Eraser tool or click Erase button below</div>
+                </div>
+
+                {/* Path Action & Erase Controls */}
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        window.dispatchEvent(new CustomEvent('anim:finish-pen-stroke'));
+                      } catch (err) {
+                        console.error('Finish pen stroke error:', err);
+                      }
+                    }}
+                    className="w-full bg-cyan-500 hover:bg-cyan-400 text-neutral-950 text-[9.5px] font-black py-1.5 rounded-lg uppercase tracking-wider transition-all cursor-pointer shadow-md text-center flex items-center justify-center gap-1.5"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Finish / New Pen Stroke
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        window.dispatchEvent(new CustomEvent('anim:erase-pen-drawing'));
+                        if (selectedObjectId && objects[selectedObjectId] && selectedObjectId.startsWith('obj_')) {
+                          deleteObject(selectedObjectId);
+                        }
+                      } catch (err) {
+                        console.error('Erase pen drawing error:', err);
+                      }
+                    }}
+                    className="w-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[9.5px] font-bold py-1.5 rounded-lg uppercase tracking-wider transition-all cursor-pointer border border-rose-500/40 text-center flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3 h-3 text-rose-400" />
+                    Erase Pen Drawing
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        window.dispatchEvent(new CustomEvent('anim:erase-selected-anchor'));
+                      } catch (err) {
+                        console.error('Erase selected anchor error:', err);
+                      }
+                    }}
+                    className="w-full bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-[9px] font-medium py-1.5 rounded-lg uppercase tracking-wider transition-all cursor-pointer border border-neutral-800 text-center"
+                  >
+                    Erase Selected Anchor Node
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        if (selectedObjectId && objects[selectedObjectId]) {
+                          const pts = [...objects[selectedObjectId].points].reverse();
+                          updateObject(selectedObjectId, { points: pts });
+                        }
+                      } catch (err) {
+                        console.error('Reverse path error:', err);
+                      }
+                    }}
+                    disabled={!selectedObjectId}
+                    className="w-full bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 text-cyan-300 text-[9px] font-bold py-1.5 rounded-lg uppercase tracking-wider transition-all cursor-pointer border border-neutral-800 text-center"
+                  >
+                    Reverse Path Direction
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 🎯 Lasso Batch Processing Suite */}
             {activeTool === 'LSO' && (
-              <div className="border border-amber-500/30 bg-neutral-950/90 rounded-2xl p-3 space-y-3 shrink-0 shadow-lg animate-fade-in" id="lasso-batch-panel">
+              <div className="border border-amber-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="lasso-batch-panel">
                 <div className="flex items-center gap-1.5 text-amber-400">
                   <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                  <span className="text-[10px] font-black uppercase tracking-wider font-sans">Lasso Batch Actions</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider font-sans">Lasso Batch Processing Suite</span>
                 </div>
-                <p className="text-[9px] text-neutral-400 leading-normal font-medium">
-                  Draw a closed loop on the canvas around multiple drawings, then duplicate all of them instantly in batch!
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Draw a closed loop around multiple drawings on the canvas. Perform batch duplicate, move, scale, delete, or bulk color changes!
                 </p>
                 
                 {lassoPoints && lassoPoints.length >= 3 ? (
-                  <div className="space-y-2 bg-neutral-900/60 p-2 rounded-xl border border-neutral-800">
+                  <div className="space-y-2.5 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
                     <div className="flex justify-between text-[10px]">
-                      <span className="text-neutral-400 font-bold">Lasso Loop:</span>
-                      <span className="text-emerald-400 font-mono font-black">Closed ({lassoPoints.length} pts)</span>
+                      <span className="text-neutral-400 font-bold">Lasso Boundary:</span>
+                      <span className="text-emerald-400 font-mono font-black">Active Loop ({lassoPoints.length} pts)</span>
                     </div>
+
+                    {/* Batch Duplicate */}
                     <button
-                      onClick={duplicateLassoBatch}
-                      className="w-full bg-amber-500 hover:bg-amber-600 text-neutral-950 text-[10px] font-black py-1.5 rounded-lg uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                      type="button"
+                      onClick={() => {
+                        try {
+                          if (duplicateLassoBatch) duplicateLassoBatch();
+                        } catch (err) {
+                          console.error('Duplicate lasso batch error:', err);
+                        }
+                      }}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-neutral-950 text-[10px] font-black py-1.5 rounded-lg uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5"
                     >
+                      <Copy className="w-3 h-3" />
                       Duplicate Lasso Batch
+                    </button>
+
+                    {/* Batch Scale Controls */}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            if (batchScaleLasso) batchScaleLasso(1.1);
+                          } catch (err) {
+                            console.error('Batch scale up error:', err);
+                          }
+                        }}
+                        className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[9px] font-bold py-1.5 px-2 rounded-lg border border-neutral-700 transition-colors flex items-center justify-center gap-1"
+                      >
+                        <ZoomIn className="w-3 h-3 text-amber-400" />
+                        Scale +10%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            if (batchScaleLasso) batchScaleLasso(0.9);
+                          } catch (err) {
+                            console.error('Batch scale down error:', err);
+                          }
+                        }}
+                        className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[9px] font-bold py-1.5 px-2 rounded-lg border border-neutral-700 transition-colors flex items-center justify-center gap-1"
+                      >
+                        <ZoomOut className="w-3 h-3 text-amber-400" />
+                        Scale -10%
+                      </button>
+                    </div>
+
+                    {/* Batch Align Controls */}
+                    <div className="space-y-1">
+                      <span className="text-[8.5px] text-neutral-400 font-bold uppercase">Batch Alignment</span>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[
+                          { id: 'left', label: 'Left', icon: AlignLeft },
+                          { id: 'center', label: 'Center', icon: AlignCenter },
+                          { id: 'top', label: 'Top', icon: AlignVerticalSpaceAround },
+                          { id: 'bottom', label: 'Bottom', icon: AlignRight }
+                        ].map(a => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => {
+                              try {
+                                if (batchAlignLasso) batchAlignLasso(a.id as any);
+                              } catch (err) {
+                                console.error('Batch align error:', err);
+                              }
+                            }}
+                            className="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white p-1 rounded-md text-[8.5px] font-bold flex flex-col items-center gap-0.5 border border-neutral-700/60"
+                          >
+                            <a.icon className="w-2.5 h-2.5 text-amber-400" />
+                            {a.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Batch Color Swatches */}
+                    <div className="space-y-1">
+                      <span className="text-[8.5px] text-neutral-400 font-bold uppercase">Batch Tint Color</span>
+                      <div className="grid grid-cols-6 gap-1">
+                        {['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'].map(col => (
+                          <button
+                            key={col}
+                            type="button"
+                            onClick={() => {
+                              try {
+                                if (batchColorLasso) batchColorLasso(col);
+                              } catch (err) {
+                                console.error('Batch color error:', err);
+                              }
+                            }}
+                            style={{ backgroundColor: col }}
+                            className="h-4 rounded border border-neutral-700 hover:scale-110 transition-transform"
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Batch Delete */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          if (deleteLassoBatch) deleteLassoBatch();
+                        } catch (err) {
+                          console.error('Batch delete error:', err);
+                        }
+                      }}
+                      className="w-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[9px] font-bold py-1 rounded-lg border border-rose-500/30 transition-colors uppercase cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete Batch Enclosed
                     </button>
                   </div>
                 ) : (
@@ -848,6 +1494,547 @@ export default function LeftPanel({
                     <span className="text-[9px] text-neutral-500 font-extrabold leading-normal block">Draw a closed loop on the canvas to select drawings.</span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* 🎯 Pivot Tool Controls */}
+            {activeTool === 'PVT' && (
+              <div className="border border-indigo-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="pivot-tool-panel">
+                <div className="flex items-center justify-between text-indigo-400">
+                  <div className="flex items-center gap-1.5">
+                    <Crosshair className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">Pivot Transform Origin</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 font-mono font-bold uppercase border border-indigo-500/20">
+                    Snap Grid
+                  </span>
+                </div>
+
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Sets the rotation and scaling center point of drawings. Click anywhere on canvas or choose a 9-point snapping anchor!
+                </p>
+
+                {selectedObjectId && objects[selectedObjectId] ? (
+                  <div className="space-y-2.5 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Selected:</span>
+                      <span className="text-indigo-400 font-bold truncate max-w-[120px]">{objects[selectedObjectId].name}</span>
+                    </div>
+
+                    {/* Coordinates Readout */}
+                    <div className="grid grid-cols-2 gap-2 text-[9px] font-mono bg-neutral-950 p-2 rounded-lg border border-neutral-800">
+                      <div>
+                        <span className="text-neutral-500 block text-[7.5px] uppercase font-bold">Local Pivot</span>
+                        <span className="text-indigo-300 font-bold">
+                          X: {Number(objects[selectedObjectId].pivots?.[0]?.localX ?? 0).toFixed(1)}
+                        </span>
+                        <span className="text-indigo-300 font-bold block">
+                          Y: {Number(objects[selectedObjectId].pivots?.[0]?.localY ?? 0).toFixed(1)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neutral-500 block text-[7.5px] uppercase font-bold">World Pivot</span>
+                        <span className="text-emerald-300 font-bold">
+                          X: {Number((objects[selectedObjectId].transform?.x ?? 0) + (objects[selectedObjectId].pivots?.[0]?.localX ?? 0)).toFixed(1)}
+                        </span>
+                        <span className="text-emerald-300 font-bold block">
+                          Y: {Number((objects[selectedObjectId].transform?.y ?? 0) + (objects[selectedObjectId].pivots?.[0]?.localY ?? 0)).toFixed(1)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 9-Point Snapping Grid */}
+                    <div className="space-y-1">
+                      <span className="text-[8.5px] text-neutral-400 font-bold uppercase">Snap Pivot Position</span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[
+                          { id: 'tl', label: 'TL', fx: 0, fy: 0 },
+                          { id: 'tc', label: 'TC', fx: 0.5, fy: 0 },
+                          { id: 'tr', label: 'TR', fx: 1, fy: 0 },
+                          { id: 'ml', label: 'ML', fx: 0, fy: 0.5 },
+                          { id: 'center', label: 'Center', fx: 0.5, fy: 0.5 },
+                          { id: 'mr', label: 'MR', fx: 1, fy: 0.5 },
+                          { id: 'bl', label: 'BL', fx: 0, fy: 1 },
+                          { id: 'bc', label: 'BC', fx: 0.5, fy: 1 },
+                          { id: 'br', label: 'BR', fx: 1, fy: 1 },
+                        ].map(pos => (
+                          <button
+                            key={pos.id}
+                            type="button"
+                            onClick={() => {
+                              try {
+                                const obj = objects[selectedObjectId];
+                                if (!obj || !obj.points || obj.points.length === 0) return;
+                                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                                obj.points.forEach(p => {
+                                  if (p.x < minX) minX = p.x;
+                                  if (p.y < minY) minY = p.y;
+                                  if (p.x > maxX) maxX = p.x;
+                                  if (p.y > maxY) maxY = p.y;
+                                });
+                                const targetX = minX + (maxX - minX) * pos.fx;
+                                const targetY = minY + (maxY - minY) * pos.fy;
+
+                                const currentPivots = obj.pivots ? [...obj.pivots] : [{ id: `pvt_${Date.now()}`, name: 'Pivot_1', localX: 0, localY: 0, locked: false }];
+                                currentPivots[0] = {
+                                  ...currentPivots[0],
+                                  localX: Number(targetX.toFixed(2)),
+                                  localY: Number(targetY.toFixed(2))
+                                };
+                                updateObject(selectedObjectId, { pivots: currentPivots });
+                              } catch (err) {
+                                console.error('Pivot snap error:', err);
+                              }
+                            }}
+                            className="bg-neutral-800 hover:bg-indigo-600 text-neutral-300 hover:text-white text-[8px] font-black py-1.5 rounded border border-neutral-700/80 transition-colors uppercase text-center cursor-pointer"
+                          >
+                            {pos.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Reset Pivot Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          const obj = objects[selectedObjectId];
+                          if (!obj || !obj.points) return;
+                          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                          obj.points.forEach(p => {
+                            if (p.x < minX) minX = p.x;
+                            if (p.y < minY) minY = p.y;
+                            if (p.x > maxX) maxX = p.x;
+                            if (p.y > maxY) maxY = p.y;
+                          });
+                          const centerX = (minX + maxX) / 2;
+                          const centerY = (minY + maxY) / 2;
+                          const currentPivots = obj.pivots ? [...obj.pivots] : [{ id: `pvt_${Date.now()}`, name: 'Pivot_1', localX: 0, localY: 0, locked: false }];
+                          currentPivots[0] = {
+                            ...currentPivots[0],
+                            localX: Number(centerX.toFixed(2)),
+                            localY: Number(centerY.toFixed(2))
+                          };
+                          updateObject(selectedObjectId, { pivots: currentPivots });
+                        } catch (err) {
+                          console.error('Reset pivot error:', err);
+                        }
+                      }}
+                      className="w-full bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[9px] font-bold py-1.5 rounded-lg border border-neutral-700 uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3 text-indigo-400" />
+                      Reset Pivot to Center
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-center">
+                    <span className="text-[9px] text-neutral-500 font-extrabold leading-normal block">Select a drawing to adjust its pivot point.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 🗡️ Knife Tool Controls */}
+            {activeTool === 'KNF' && knifeSettings && setKnifeSettings && (
+              <div className="border border-emerald-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="knife-tool-panel">
+                <div className="flex items-center justify-between text-emerald-400">
+                  <div className="flex items-center gap-1.5">
+                    <Scissors className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">Knife Slicing Engine</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 font-mono font-bold uppercase border border-emerald-500/20">
+                    Real Path Cut
+                  </span>
+                </div>
+
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Drag across any 2D vector drawing or 3D object to slice it into distinct separate objects along the cut line!
+                </p>
+
+                {/* Separation Gap Slider */}
+                <div className="space-y-1.5 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
+                  <div className="flex justify-between text-[9px]">
+                    <span className="text-neutral-400 font-bold">Cut Separation Gap:</span>
+                    <span className="text-emerald-400 font-mono font-bold">{knifeSettings.separateDistance ?? 8}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    value={knifeSettings.separateDistance ?? 8}
+                    onChange={(e) => {
+                      try {
+                        setKnifeSettings(prev => ({ ...prev, separateDistance: Number(e.target.value) }));
+                      } catch (err) {
+                        console.error('Knife gap error:', err);
+                      }
+                    }}
+                    className="w-full accent-emerald-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                  />
+                  <div className="text-[8px] text-neutral-500">
+                    Automatically separates the two cut halves by this gap distance.
+                  </div>
+                </div>
+
+                {/* Slicing Keep Mode */}
+                <div className="space-y-1">
+                  <label className="text-[9px] text-neutral-400 font-bold uppercase">Keep Sliced Pieces</label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'both', label: 'Both' },
+                      { id: 'left', label: 'Left Only' },
+                      { id: 'right', label: 'Right Only' }
+                    ].map(k => (
+                      <button
+                        key={k.id}
+                        type="button"
+                        onClick={() => {
+                          try {
+                            setKnifeSettings(prev => ({ ...prev, keepSide: k.id as any }));
+                          } catch (err) {
+                            console.error('Knife keep side error:', err);
+                          }
+                        }}
+                        className={`text-[9px] py-1 px-1 rounded-lg font-bold border transition-all text-center uppercase ${
+                          (knifeSettings.keepSide ?? 'both') === k.id
+                            ? 'bg-emerald-500 text-neutral-950 border-emerald-400 shadow-sm'
+                            : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                        }`}
+                      >
+                        {k.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Smooth Cut Edge Toggle */}
+                <label className="flex items-center justify-between cursor-pointer py-1 bg-neutral-900/40 px-2 rounded-lg border border-neutral-800/60">
+                  <span className="text-[9px] text-neutral-300 font-bold">Smooth Cut Edges</span>
+                  <input
+                    type="checkbox"
+                    checked={knifeSettings.smoothCut ?? true}
+                    onChange={(e) => {
+                      try {
+                        setKnifeSettings(prev => ({ ...prev, smoothCut: e.target.checked }));
+                      } catch (err) {
+                        console.error('Knife smooth error:', err);
+                      }
+                    }}
+                    className="accent-emerald-500 rounded cursor-pointer"
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* 🧹 Smart Vector Eraser Suite */}
+            {activeTool === 'ERS' && eraserSettings && setEraserSettings && (
+              <div className="border border-rose-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="eraser-tool-panel">
+                <div className="flex items-center justify-between text-rose-400">
+                  <div className="flex items-center gap-1.5">
+                    <Eraser className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">Vector Eraser Engine</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-300 font-mono font-bold uppercase border border-rose-500/20">
+                    Real Vector
+                  </span>
+                </div>
+
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Cut, split, or erase vector lines and shapes in real-time. Works across both individual drawings and 3D meshes.
+                </p>
+
+                {/* Eraser Radius Slider */}
+                <div className="space-y-1.5 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
+                  <div className="flex justify-between text-[9px]">
+                    <span className="text-neutral-400 font-bold">Eraser Brush Size:</span>
+                    <span className="text-rose-400 font-mono font-bold">{eraserSettings.radius ?? 25}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={5}
+                    max={120}
+                    value={eraserSettings.radius ?? 25}
+                    onChange={(e) => {
+                      try {
+                        setEraserSettings(prev => ({ ...prev, radius: Number(e.target.value) }));
+                      } catch (err) {
+                        console.error('Eraser radius error:', err);
+                      }
+                    }}
+                    className="w-full accent-rose-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* Eraser Mode Buttons */}
+                <div className="space-y-1">
+                  <label className="text-[9px] text-neutral-400 font-bold uppercase">Erase Mode</label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'cut', label: 'Vector Cut' },
+                      { id: 'stroke', label: 'Whole Stroke' },
+                      { id: 'point', label: 'Vertex Trim' }
+                    ].map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          try {
+                            setEraserSettings(prev => ({ ...prev, mode: m.id as any }));
+                          } catch (err) {
+                            console.error('Eraser mode error:', err);
+                          }
+                        }}
+                        className={`text-[8.5px] py-1 px-1 rounded-lg font-bold border transition-all text-center uppercase ${
+                          (eraserSettings.mode ?? 'cut') === m.id
+                            ? 'bg-rose-500 text-white border-rose-400 shadow-sm'
+                            : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Clear Selected Drawing Quick Action */}
+                {selectedObjectId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        deleteObject(selectedObjectId);
+                      } catch (err) {
+                        console.error('Eraser delete object error:', err);
+                      }
+                    }}
+                    className="w-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-[9px] font-bold py-1.5 rounded-lg border border-rose-500/20 uppercase transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Erase Entire Selected Object
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 🖌️ ML Smart Brush Suite */}
+            {activeTool === 'BRS' && brushSettings && setBrushSettings && (
+              <div className="border border-cyan-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="brush-tool-panel">
+                <div className="flex items-center justify-between text-cyan-400">
+                  <div className="flex items-center gap-1.5">
+                    <Brush className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">ML Vector Brush Studio</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 font-mono font-bold uppercase border border-cyan-500/20">
+                    Smart Stabilized
+                  </span>
+                </div>
+
+                {/* Brush Width & Opacity */}
+                <div className="space-y-2 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Stroke Thickness:</span>
+                      <span className="text-cyan-400 font-mono font-bold">{brushSettings.strokeWidth ?? 4}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={64}
+                      value={brushSettings.strokeWidth ?? 4}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, strokeWidth: Number(e.target.value) }));
+                        } catch (err) {
+                          console.error('Brush width error:', err);
+                        }
+                      }}
+                      className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Opacity:</span>
+                      <span className="text-cyan-400 font-mono font-bold">{Math.round((brushSettings.opacity ?? 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={10}
+                      max={100}
+                      value={Math.round((brushSettings.opacity ?? 1) * 100)}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, opacity: Number(e.target.value) / 100 }));
+                        } catch (err) {
+                          console.error('Brush opacity error:', err);
+                        }
+                      }}
+                      className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Streamline Stabilization:</span>
+                      <span className="text-cyan-400 font-mono font-bold">{brushSettings.streamline ?? 40}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={brushSettings.streamline ?? 40}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, streamline: Number(e.target.value) }));
+                        } catch (err) {
+                          console.error('Brush streamline error:', err);
+                        }
+                      }}
+                      className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-neutral-400 font-bold">Jitter / Scatter:</span>
+                      <span className="text-cyan-400 font-mono font-bold">{brushSettings.jitterScatter ?? 0}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20}
+                      value={brushSettings.jitterScatter ?? 0}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, jitterScatter: Number(e.target.value) }));
+                        } catch (err) {
+                          console.error('Brush jitter error:', err);
+                        }
+                      }}
+                      className="w-full accent-cyan-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Brush Color Picker */}
+                <div className="space-y-1.5">
+                  <span className="text-[8.5px] text-neutral-400 font-bold uppercase">Brush Ink Color</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={brushSettings.strokeColor ?? '#000000'}
+                      onChange={(e) => {
+                        try {
+                          setBrushSettings(prev => ({ ...prev, strokeColor: e.target.value }));
+                        } catch (err) {
+                          console.error('Brush color error:', err);
+                        }
+                      }}
+                      className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
+                    />
+                    <div className="grid grid-cols-6 gap-1 flex-1">
+                      {['#000000', '#ffffff', '#ef4444', '#f59e0b', '#10b981', '#3b82f6'].map(col => (
+                        <button
+                          key={col}
+                          type="button"
+                          onClick={() => {
+                            try {
+                              setBrushSettings(prev => ({ ...prev, strokeColor: col }));
+                            } catch (err) {
+                              console.error('Brush preset color error:', err);
+                            }
+                          }}
+                          style={{ backgroundColor: col }}
+                          className="h-5 rounded border border-neutral-700 hover:scale-105 transition-transform"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+
+            {/* 🤖 Machine Learning Acceleration & Smart Shape Studio */}
+            {mlSettings && setMlSettings && (
+              <div className="border border-purple-500/40 bg-neutral-950/95 rounded-2xl p-3 space-y-3 shrink-0 shadow-xl animate-fade-in" id="ml-ai-panel">
+                <div className="flex items-center justify-between text-purple-400">
+                  <div className="flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-wider font-sans">ML Geometric Intelligence</span>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 font-mono font-bold uppercase border border-purple-500/20">
+                    1000k+ Assets
+                  </span>
+                </div>
+
+                <p className="text-[9px] text-neutral-300 leading-normal font-medium">
+                  Accelerated spatial indexing and neural shape recognition for ultra-fast performance across thousands of objects.
+                </p>
+
+                {/* Smart Shape Detection Toggle */}
+                <label className="flex items-center justify-between cursor-pointer py-1 bg-neutral-900/40 px-2 rounded-lg border border-neutral-800/60">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-neutral-200 font-bold">Smart Shape Detection</span>
+                    <span className="text-[7.5px] text-neutral-400">Auto-converts sketches to perfect circles, rectangles & stars</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={mlSettings.smartShapeDetection ?? true}
+                    onChange={(e) => {
+                      try {
+                        setMlSettings(prev => ({ ...prev, smartShapeDetection: e.target.checked }));
+                      } catch (err) {
+                        console.error('ML shape error:', err);
+                      }
+                    }}
+                    className="accent-purple-500 rounded cursor-pointer"
+                  />
+                </label>
+
+                {/* Stroke Stabilizer Strength Slider */}
+                <div className="space-y-1 bg-neutral-900/60 p-2 rounded-xl border border-neutral-800">
+                  <div className="flex justify-between text-[9px]">
+                    <span className="text-neutral-400 font-bold">ML Predictive Stabilizer:</span>
+                    <span className="text-purple-400 font-mono font-bold">{Math.round((mlSettings.stabilizerStrength ?? 0.4) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round((mlSettings.stabilizerStrength ?? 0.4) * 100)}
+                    onChange={(e) => {
+                      try {
+                        setMlSettings(prev => ({ ...prev, stabilizerStrength: Number(e.target.value) / 100 }));
+                      } catch (err) {
+                        console.error('ML stabilizer error:', err);
+                      }
+                    }}
+                    className="w-full accent-purple-500 h-1 bg-neutral-800 rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* Spatial Hashing Acceleration Toggle */}
+                <label className="flex items-center justify-between cursor-pointer py-1 bg-neutral-900/40 px-2 rounded-lg border border-neutral-800/60">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-neutral-200 font-bold">Spatial Hashing Grid</span>
+                    <span className="text-[7.5px] text-neutral-400">O(1) hit testing for 1000k+ vector objects</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={mlSettings.spatialHashAcceleration ?? true}
+                    onChange={(e) => {
+                      try {
+                        setMlSettings(prev => ({ ...prev, spatialHashAcceleration: e.target.checked }));
+                      } catch (err) {
+                        console.error('ML spatial hash error:', err);
+                      }
+                    }}
+                    className="accent-purple-500 rounded cursor-pointer"
+                  />
+                </label>
               </div>
             )}
 

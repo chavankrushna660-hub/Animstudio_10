@@ -722,7 +722,7 @@ export interface Project {
 }
 
 export interface BrushSettings {
-  brushType: 'solid' | 'calligraphy' | 'pencil' | 'marker' | 'airbrush' | 'glow';
+  brushType: 'solid' | 'calligraphy' | 'pencil' | 'marker' | 'airbrush' | 'glow' | 'cold' | 'dry' | 'smooth' | 'water' | 'charcoal' | 'oil' | 'ink';
   strokeColor: string;
   strokeWidth: number;
   strokeOpacity: number;
@@ -730,11 +730,99 @@ export interface BrushSettings {
   blur: number;
   chiselAngle?: number; // Calligraphy angle (0-180 deg)
   textureDensity?: number; // Pencil texture jitter factor
+  jitterEnabled?: boolean; // Jitter toggle
+  jitterAmount?: number; // Jitter strength (0 to 1)
+  rotationJitter?: boolean; // Random rotation jitter per stamp
+  sizeJitter?: boolean; // Random 5-10% size jitter
+  flow?: number; // 0 to 1
+  wetness?: number; // 0 to 1 for water brush
+  dryness?: number; // 0 to 1 for dry bristle effect
+  coldTemperature?: number; // -100 to 100 for temperature shifts
+  smoothSmoothing?: number; // 0 to 100 auto-smoothing stabilizer
+  streamline?: number; // 0 to 1 line smoothing stabilizer
+  scatter?: number; // 0 to 50px scattering
+  randomRotation?: boolean; // Random rotation per stamp (Math.random() * 360)
+  randomSize?: boolean; // Random size variation per stamp
+  hue?: number; // 0 to 360
+  saturation?: number; // 0 to 100
+  lightness?: number; // 0 to 100
+  colorJitter?: number; // 0 to 100%
+  touchOffset?: boolean; // Touch offset to prevent finger blocking view
   shadowEnabled: boolean;
   shadowColor: string;
   shadowBlur: number;
   shadowOffsetX: number;
   shadowOffsetY: number;
+}
+
+export interface EraserSettings {
+  radius: number; // 5 to 250
+  mode: 'cut' | 'stroke' | 'point' | 'area'; // 'cut' = real vector cut / erase points within radius, 'stroke' = delete entire touched stroke
+  smoothEdges: boolean;
+  hardness?: number; // 0 to 1
+  feather?: number; // 0 to 50
+  eraseActiveLayerOnly?: boolean;
+}
+
+export interface KnifeSettings {
+  mode: 'line' | 'lasso';
+  separateDistance: number;
+  keepSide?: 'both' | 'left' | 'right';
+  autoSeparate?: boolean;
+  smoothCut?: boolean;
+}
+
+export interface PivotSettings {
+  snapToCenter?: boolean;
+  snapPosition?: 'center' | 'top-left' | 'top-center' | 'top-right' | 'middle-left' | 'middle-right' | 'bottom-left' | 'bottom-center' | 'bottom-right' | 'custom';
+  showCrosshair?: boolean;
+}
+
+export interface MLSettings {
+  stabilizerEnabled: boolean;
+  stabilizerStrength: number; // 0 to 1
+  predictiveCurvature: boolean;
+  shapeRecognizerEnabled: boolean;
+  spatialAcceleration: boolean;
+}
+
+export interface BezierAnchor {
+  id: string;
+  x: number;
+  y: number;
+  handleIn?: Point | null; // cp1 (direction point)
+  handleOut?: Point | null; // cp2 (direction point)
+  isCorner?: boolean; // sharp corner vs smooth bezier
+  selected?: boolean;
+}
+
+export interface BezierToolState {
+  active: boolean;
+  anchors: BezierAnchor[];
+  selectedAnchorIndex: number | null;
+  selectedHandleType: 'anchor' | 'in' | 'out' | null;
+  isClosed: boolean;
+  cornerMode: boolean;
+  touchOffset: boolean;
+}
+
+export interface PuppetPin {
+  id: string;
+  x: number;
+  y: number;
+  origX: number;
+  origY: number;
+  weight?: number;
+  locked?: boolean;
+}
+
+export interface RealPuppetState {
+  active: boolean;
+  pins: PuppetPin[];
+  selectedPinId: string | null;
+  meshDensity: number;
+  influenceRadius: number;
+  autoRig: boolean;
 }
 
 export interface TwitchCurvePoint {
